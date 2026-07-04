@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AVcleaner</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>AVcleaner</h1>
+        <span class="version">v{{ version }}</span>
+      </div>
+      <nav>
+        <button data-tab="workspace" class="active">整理</button>
+        <button data-tab="trash">隔离</button>
+        <button data-tab="history">历史</button>
+        <button data-tab="settings">设置</button>
+      </nav>
+    </header>
+
+    <main id="app">
+      <section class="toolbar">
+        <input id="rootPath" type="text" placeholder="L:\downloads" />
+        <button id="scanBtn">扫描</button>
+        <button id="planBtn">生成预览</button>
+        <button id="llmBtn">LLM 建议</button>
+        <button id="executeBtn" class="danger">执行选中</button>
+      </section>
+
+      <section class="metrics">
+        <div><strong id="metricFiles">0</strong><span>文件</span></div>
+        <div><strong id="metricRename">0</strong><span>改名</span></div>
+        <div><strong id="metricReview">0</strong><span>复核</span></div>
+        <div><strong id="metricTrash">0</strong><span>隔离</span></div>
+      </section>
+
+      <section data-panel="workspace" class="panel active">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="check-col"></th>
+                <th>状态</th>
+                <th>原文件名</th>
+                <th>建议文件名</th>
+                <th>置信度</th>
+                <th>原因</th>
+                <th>警告</th>
+              </tr>
+            </thead>
+            <tbody id="planBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section data-panel="trash" class="panel">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>文件名</th>
+                <th>路径</th>
+                <th>原因</th>
+                <th>大小</th>
+              </tr>
+            </thead>
+            <tbody id="trashBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section data-panel="history" class="panel">
+        <div class="history-actions">
+          <button id="refreshRunsBtn">刷新历史</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>批次</th>
+                <th>时间</th>
+                <th>状态</th>
+                <th>摘要</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="runsBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section data-panel="settings" class="panel settings-grid">
+        <label>
+          Provider
+          <select id="llmProvider">
+            <option value="disabled">disabled</option>
+            <option value="openai_compatible">openai_compatible</option>
+            <option value="ollama">ollama</option>
+          </select>
+        </label>
+        <label>
+          Base URL
+          <input id="llmBaseUrl" type="text" placeholder="http://127.0.0.1:11434" />
+        </label>
+        <label>
+          Model
+          <input id="llmModel" type="text" placeholder="gpt-4.1-mini" />
+        </label>
+        <label>
+          API Key
+          <input id="llmApiKey" type="password" />
+        </label>
+        <label class="inline">
+          <input id="llmSendPath" type="checkbox" />
+          发送完整路径
+        </label>
+        <button id="saveSettingsBtn">保存设置</button>
+      </section>
+    </main>
+
+    <div id="toast" class="toast"></div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
+
