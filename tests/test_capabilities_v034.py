@@ -6,7 +6,7 @@ def test_capabilities_exposes_v050_release_features(client) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["version"] == "0.5.0"
+    assert body["version"] == "0.5.1"
     assert body["capabilities"]["manual_review"] is True
     assert body["capabilities"]["persisted_selection"] is True
     assert body["capabilities"]["plan_export"] is True
@@ -19,6 +19,9 @@ def test_capabilities_exposes_v050_release_features(client) -> None:
     assert body["capabilities"]["legacy_llm_suggest_disabled"] is True
     assert body["capabilities"]["llm_cache_deterministic"] is True
     assert body["capabilities"]["packaging_ready"] is True
+    assert body["capabilities"]["release_zip"] is True
+    assert body["capabilities"]["artifact_manifest"] is True
+    assert body["capabilities"]["packaged_temp_execution_smoke"] is True
     assert body["capabilities"]["portable_mode"] is True
     assert body["capabilities"]["appdata_mode"] is True
     assert body["capabilities"]["health_check"] is True

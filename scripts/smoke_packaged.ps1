@@ -1,7 +1,8 @@
 param(
   [Parameter(Mandatory = $true)]
   [string]$AppPath,
-  [string]$ExpectedVersion = "0.5.0"
+  [string]$ExpectedVersion = "0.5.1",
+  [switch]$RunTempExecution
 )
 
 $ErrorActionPreference = "Stop"
@@ -43,6 +44,102 @@ function Invoke-Json($Method, $Uri, $Headers = @{}, $Body = $null) {
   return Invoke-RestMethod @params
 }
 
+function Assert-EndpointStatus($Method, $Uri, $Headers, $Body, [int]$ExpectedStatus, [string]$ExpectedErrorCode) {
+  try {
+    Invoke-Json $Method $Uri $Headers $Body | Out-Null
+    Write-Error "Endpoint unexpectedly succeeded: $Uri"
+  } catch {
+    $response = $_.Exception.Response
+    if (-not $response) { throw }
+    $actualStatus = [int]$response.StatusCode
+    if ($actualStatus -ne $ExpectedStatus) {
+      throw
+    }
+    $message = $_.ErrorDetails.Message
+    if ($ExpectedErrorCode -and ($message -notmatch [regex]::Escape($ExpectedErrorCode))) {
+      Write-Error "Expected error_code=$ExpectedErrorCode from $Uri, got: $message"
+    }
+  }
+}
+
+function Test-PathUnder([string]$Root, [string]$PathValue) {
+  $rootFull = [System.IO.Path]::GetFullPath($Root).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+  $pathFull = [System.IO.Path]::GetFullPath($PathValue)
+  return $pathFull.Equals($rootFull, [System.StringComparison]::OrdinalIgnoreCase) -or
+    $pathFull.StartsWith($rootFull + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Assert-OperationPathsStayInScanRoot($Operations, [string]$ScanRoot) {
+  foreach ($operation in @($Operations)) {
+    foreach ($pathValue in @($operation.source_path, $operation.target_path)) {
+      if ($pathValue -and -not (Test-PathUnder $ScanRoot $pathValue)) {
+        Write-Error "Operation path escaped temp scan root: $pathValue"
+      }
+    }
+  }
+}
+
+function Add-SmokeFiles([string]$ScanRoot, [bool]$ForExecution) {
+  if ($ForExecution) {
+    Set-Content -LiteralPath (Join-Path $ScanRoot "[ads.example] ABP123.mp4") -Value "video"
+    Set-Content -LiteralPath (Join-Path $ScanRoot "junk.url") -Value "[InternetShortcut]"
+    Set-Content -LiteralPath (Join-Path $ScanRoot "ABP-123.zh.srt") -Value "subtitle"
+  } else {
+    Set-Content -LiteralPath (Join-Path $ScanRoot "hhd800.com@ABP-123.mp4") -Value "video"
+  }
+}
+
+function Invoke-TempExecutionSmoke($Base, $Headers, $Plan, [string]$ScanRoot) {
+  $validated = Invoke-Json POST "$Base/api/plans/$($Plan.plan_id)/validate" $Headers
+  if (-not $validated.plan_hash) { Write-Error "Validate did not return plan_hash." }
+
+  $sidecar = @($validated.items | Where-Object { $_.sidecar_type -eq "subtitle" } | Select-Object -First 1)
+  if (-not $sidecar) { Write-Error "Expected subtitle sidecar in temp execution plan." }
+  if ($sidecar.selected -or $sidecar.checked) { Write-Error "Sidecar was selected by default." }
+
+  $selection = Invoke-Json PATCH "$Base/api/plans/$($Plan.plan_id)/selection" $Headers @{
+    mode = "select_safe"
+    selected_item_ids = @()
+  }
+  $selectedIds = @($selection.selected_item_ids)
+  if ($selectedIds.Count -lt 2) { Write-Error "Expected video rename and junk quarantine to be selected." }
+  if ($selectedIds -contains $sidecar.id) { Write-Error "Sidecar was selected by select_safe." }
+
+  $summary = Invoke-Json POST "$Base/api/plans/$($Plan.plan_id)/execution-summary" $Headers @{
+    selected_item_ids = $selectedIds
+    plan_hash = $selection.plan_hash
+  }
+  if (-not $summary.ok_to_execute) { Write-Error "Execution summary rejected temp smoke selection." }
+  if ($summary.sidecar_count -ne 0) { Write-Error "Execution summary included sidecar execution unexpectedly." }
+
+  $originalVideo = Join-Path $ScanRoot "[ads.example] ABP123.mp4"
+  $renamedVideo = Join-Path $ScanRoot "ABP-123.mp4"
+  $junk = Join-Path $ScanRoot "junk.url"
+  $sidecarPath = Join-Path $ScanRoot "ABP-123.zh.srt"
+
+  $execution = Invoke-Json POST "$Base/api/plans/$($Plan.plan_id)/execute" $Headers @{
+    selected_item_ids = $selectedIds
+    confirm = $true
+    plan_hash = $selection.plan_hash
+  }
+  if (-not $execution.run_id) { Write-Error "Execute did not return run_id." }
+  Assert-OperationPathsStayInScanRoot $execution.operations $ScanRoot
+
+  if (Test-Path -LiteralPath $originalVideo) { Write-Error "Original video still exists after rename execution." }
+  if (-not (Test-Path -LiteralPath $renamedVideo)) { Write-Error "Renamed video missing after execution." }
+  if (Test-Path -LiteralPath $junk) { Write-Error "Junk file still exists after quarantine execution." }
+  if (-not (Test-Path -LiteralPath $sidecarPath)) { Write-Error "Sidecar should remain untouched during execution." }
+
+  $rollback = Invoke-Json POST "$Base/api/runs/$($execution.run_id)/rollback" $Headers
+  if (-not $rollback.run_id) { Write-Error "Rollback did not return rollback run_id." }
+  Assert-OperationPathsStayInScanRoot $rollback.operations $ScanRoot
+
+  if (-not (Test-Path -LiteralPath $originalVideo)) { Write-Error "Original video was not restored after rollback." }
+  if (Test-Path -LiteralPath $renamedVideo) { Write-Error "Renamed video still exists after rollback." }
+  if (-not (Test-Path -LiteralPath $junk)) { Write-Error "Junk file was not restored after rollback." }
+  if (-not (Test-Path -LiteralPath $sidecarPath)) { Write-Error "Sidecar missing after rollback." }
+}
+
 $sourceItem = Get-Item -LiteralPath $AppPath
 $sourceRoot = if ($sourceItem.PSIsContainer) { $sourceItem.FullName } else { $sourceItem.DirectoryName }
 $tempAppRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("avcleaner-packaged-app-" + [guid]::NewGuid().ToString("N"))
@@ -53,6 +150,7 @@ $port = Get-FreeLoopbackPort
 $base = "http://127.0.0.1:$port"
 $process = $null
 $tempScan = $null
+$completed = $false
 
 try {
   $process = Start-Process -FilePath $exe -ArgumentList @("--no-window", "--host", "127.0.0.1", "--port", "$port", "--strict-port", "--portable") -PassThru -WindowStyle Hidden
@@ -92,36 +190,40 @@ try {
   if (-not $health.ok) { Write-Error "Health endpoint returned ok=false." }
   if ($health.mode -ne "portable") { Write-Error "Expected portable mode, got $($health.mode)." }
 
-  try {
-    Invoke-Json POST "$base/api/execute" $headers @{ confirm = $true; items = @() } | Out-Null
-    Write-Error "Legacy execute unexpectedly succeeded."
-  } catch {
-    if ($_.Exception.Response.StatusCode.value__ -ne 410) { throw }
-  }
-  try {
-    Invoke-Json POST "$base/api/llm/suggest" $headers @{ items = @() } | Out-Null
-    Write-Error "Legacy LLM suggest unexpectedly succeeded."
-  } catch {
-    if ($_.Exception.Response.StatusCode.value__ -ne 410) { throw }
-  }
+  Assert-EndpointStatus POST "$base/api/execute" $headers @{ confirm = $true; items = @() } 410 "legacy_execute_disabled"
+  Assert-EndpointStatus POST "$base/api/llm/suggest" $headers @{ items = @() } 410 "legacy_llm_suggest_disabled"
 
   $tempScan = New-Item -ItemType Directory -Path (Join-Path ([System.IO.Path]::GetTempPath()) ("avcleaner-smoke-" + [guid]::NewGuid().ToString("N")))
-  Set-Content -LiteralPath (Join-Path $tempScan.FullName "hhd800.com@ABP-123.mp4") -Value "video"
+  Add-SmokeFiles $tempScan.FullName $RunTempExecution.IsPresent
 
   $scan = Invoke-Json POST "$base/api/scan" $headers @{ root_path = $tempScan.FullName; recursive = $true }
   $plan = Invoke-Json POST "$base/api/plans" $headers @{ scan_id = $scan.scan_id }
   $validated = Invoke-Json POST "$base/api/plans/$($plan.plan_id)/validate" $headers
   if (-not $validated.plan_hash) { Write-Error "Validate did not return plan_hash." }
 
+  if ($RunTempExecution) {
+    Invoke-TempExecutionSmoke $base $headers $plan $tempScan.FullName
+  }
+
+  $completed = $true
   Write-Output "Packaged smoke passed: $exe"
 } finally {
   if ($process -and -not $process.HasExited) {
     Stop-Process -Id $process.Id -Force
   }
-  if ($tempScan -and (Test-Path -LiteralPath $tempScan.FullName)) {
-    Remove-Item -LiteralPath $tempScan.FullName -Recurse -Force
-  }
-  if (Test-Path -LiteralPath $tempAppRoot) {
-    Remove-Item -LiteralPath $tempAppRoot -Recurse -Force
+  if ($completed) {
+    if ($tempScan -and (Test-Path -LiteralPath $tempScan.FullName)) {
+      Remove-Item -LiteralPath $tempScan.FullName -Recurse -Force
+    }
+    if (Test-Path -LiteralPath $tempAppRoot) {
+      Remove-Item -LiteralPath $tempAppRoot -Recurse -Force
+    }
+  } else {
+    if ($tempAppRoot -and (Test-Path -LiteralPath $tempAppRoot)) {
+      Write-Warning "Preserving packaged smoke temp app for debugging: $tempAppRoot"
+    }
+    if ($tempScan -and (Test-Path -LiteralPath $tempScan.FullName)) {
+      Write-Warning "Preserving packaged smoke scan root for debugging: $($tempScan.FullName)"
+    }
   }
 }

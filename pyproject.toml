@@ -1,6 +1,6 @@
 [project]
 name = "avcleaner"
-version = "0.5.0"
+version = "0.5.1"
 description = "Local GUI tool for safe AV filename cleanup and junk-file quarantine."
 readme = "README.md"
 requires-python = ">=3.12"

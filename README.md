@@ -5,7 +5,7 @@ file names before they enter a media library. It focuses on safe local file
 renaming, junk-file quarantine, preview, confirmation, execution history, and
 rollback.
 
-Current version: `0.5.0`.
+Current version: `0.5.1`.
 
 It intentionally does not scrape metadata, download covers, generate NFO files,
 or organize a final media library. Those jobs belong to OpenAver.
@@ -42,8 +42,9 @@ or organize a final media library. Those jobs belong to OpenAver.
 - Preview-first workflow with conflict and safety validation.
 - SQLite run history.
 - Quarantine area with rollback instead of permanent deletion.
-- Windows portable packaging scripts, artifact sanity checks, packaged smoke
-  tests, and a token-protected health endpoint.
+- Windows portable packaging scripts, release zip/checksum generation, artifact
+  manifest, artifact sanity checks, packaged smoke tests, packaged temp
+  execution smoke, and a token-protected health endpoint.
 
 ## Quick Start
 
@@ -93,7 +94,30 @@ Build a portable package:
 .\packaging\build_portable.ps1
 .\scripts\check_artifact.ps1 .\dist\AVcleaner
 .\scripts\smoke_packaged.ps1 .\dist\AVcleaner
+.\scripts\smoke_packaged.ps1 .\dist\AVcleaner -RunTempExecution
+.\packaging\create_release_zip.ps1 -SmokeTested
+.\scripts\check_artifact.ps1 .\release\AVcleaner-v0.5.1-portable-win-x64.zip
 ```
+
+`smoke_packaged.ps1` is non-mutating by default. The `-RunTempExecution` mode
+copies the packaged app to `%TEMP%`, creates synthetic files under a temporary
+scan root, runs scan -> plan -> validate -> execution summary -> execute ->
+rollback, and deletes the temporary directories only after success. It preserves
+the temp paths on failure for debugging.
+
+`create_release_zip.ps1` produces:
+
+```text
+release\AVcleaner-v0.5.1-portable-win-x64.zip
+release\AVcleaner-v0.5.1-portable-win-x64.zip.sha256
+release\artifact-manifest.json
+```
+
+The release zip excludes development folders, tests, runtime databases, logs,
+quarantine contents, Git metadata, and key-like secrets. The manifest records
+version, commit, dirty state, Python/PyInstaller versions, included top-level
+files, excluded patterns, checksum, capabilities version, and smoke status
+without storing API keys or user media paths.
 
 Normal development checks do not require PyInstaller. Packaging checks can be
 added when a build exists:
@@ -233,4 +257,5 @@ For a full local check, use:
 The check script runs pytest, the corpus report, `git diff --check`, and
 `node --check avcleaner/static/app.js` when Node is available.
 
-The packaging release gates are listed in `RELEASE_CHECKLIST.md`.
+The packaging release gates and clean Windows manual checklist are listed in
+`RELEASE_CHECKLIST.md`.

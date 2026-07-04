@@ -39,3 +39,4 @@ def test_gitignore_allows_packaging_spec() -> None:
 
     assert "*.spec" in text
     assert "!packaging/pyinstaller/*.spec" in text
+    assert "release/" in text

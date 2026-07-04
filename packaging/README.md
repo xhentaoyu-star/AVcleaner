@@ -1,6 +1,6 @@
 # AVcleaner Packaging
 
-AVcleaner v0.5.0 uses a PyInstaller one-directory portable build first.
+AVcleaner v0.5.1 uses a PyInstaller one-directory portable build first.
 Installer packaging is intentionally not mandatory in this phase.
 
 Build from a prepared development environment:
@@ -39,5 +39,24 @@ Run a non-destructive packaged smoke test:
 .\scripts\smoke_packaged.ps1 .\dist\AVcleaner
 ```
 
+Run the stronger temp-only execution smoke before publishing:
+
+```powershell
+.\scripts\smoke_packaged.ps1 .\dist\AVcleaner -RunTempExecution
+```
+
+Create the portable release zip, checksum, and manifest:
+
+```powershell
+.\packaging\create_release_zip.ps1 -SmokeTested
+.\scripts\check_artifact.ps1 .\release\AVcleaner-v0.5.1-portable-win-x64.zip
+```
+
 The package must not include `.venv`, tests, Git metadata, local SQLite user
 databases, quarantine contents, logs, or API keys.
+
+PyInstaller may warn that optional hidden imports `pycparser.lextab`,
+`pycparser.yacctab`, or `tzdata` were not found. These warnings are documented
+as non-blocking for this package because the built executable passes packaged
+startup smoke and temp execution smoke. Do not add fragile hidden imports solely
+to silence those warnings.

@@ -12,6 +12,7 @@ def make_artifact(root: Path) -> Path:
     artifact = root / "AVcleaner"
     (artifact / "avcleaner" / "templates").mkdir(parents=True)
     (artifact / "avcleaner" / "static").mkdir(parents=True)
+    (artifact / "AVcleaner.exe").write_bytes(b"fake exe")
     (artifact / "avcleaner" / "templates" / "index.html").write_text("<html></html>", encoding="utf-8")
     (artifact / "avcleaner" / "static" / "app.js").write_text("console.log('ok')", encoding="utf-8")
     (artifact / "README.md").write_text("AVcleaner package", encoding="utf-8")

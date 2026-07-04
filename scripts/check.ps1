@@ -35,6 +35,8 @@ try {
       if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       & (Join-Path $Root "scripts\smoke_packaged.ps1") $Artifact
       if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      & (Join-Path $Root "scripts\smoke_packaged.ps1") $Artifact -RunTempExecution
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     } else {
       Write-Output "Packaging checks skipped: dist\AVcleaner does not exist."
     }
