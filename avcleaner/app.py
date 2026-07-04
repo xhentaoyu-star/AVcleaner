@@ -17,12 +17,11 @@ from . import __version__
 from .constants import JUNK_EXTENSIONS, SIDECAR_EXTENSIONS, TEXT_JUNK_EXTENSIONS, VIDEO_EXTENSIONS
 from .enums import IssueCode
 from .errors import AppError
-from .executor import execute_plan, execute_plan_by_id, rollback_run
+from .executor import execute_plan_by_id, rollback_run
 from .llm import check_llm_settings, suggest_with_llm
 from .models import (
     AppSettings,
     CorpusReportResponse,
-    ExecuteRequest,
     ExecutionSummaryRequest,
     LLMPayloadPreviewRequest,
     LLMSuggestionApplyRequest,
@@ -63,7 +62,7 @@ from .rule_corpus import report_response_payload
 from .rules import MAX_RULE_TEST_FILENAME_LENGTH, suggest_name_with_trace
 from .scanner import scan_files
 from .database import connect, utc_now_iso
-from .runtime import directory_writable, runtime_path_info
+from .runtime import directory_writable, is_frozen, runtime_path_info
 from .settings_store import effective_llm_api_key, get_settings, preview_settings_import, put_settings, sanitized_settings_payload
 from .validators import validate_filename
 
@@ -132,6 +131,10 @@ def capabilities() -> dict:
             "llm_suggestion_review",
             "llm_suggestion_cache",
             "llm_accept_reject",
+            "llm_provider_compatibility_modes",
+            "llm_prompt_json_compat",
+            "llm_strict_schema_fixed",
+            "llm_error_taxonomy",
             "packaging_ready",
             "release_zip",
             "artifact_manifest",
@@ -151,6 +154,15 @@ def capabilities() -> dict:
             "rollback",
             "history",
             "api_token",
+            "legacy_execute_disabled",
+            "beta_ux_polish",
+            "diagnostics_panel",
+            "first_run_helper",
+            "ui_error_explanations",
+            "release_candidate_polish",
+            "ui_explanation_coverage",
+            "diagnostics_summary",
+            "quarantine_reason_explanations",
         ],
         "video_extensions": sorted(VIDEO_EXTENSIONS),
         "sidecar_extensions": sorted(SIDECAR_EXTENSIONS),
@@ -180,7 +192,12 @@ def capabilities() -> dict:
             "llm_accept_reject": True,
             "llm_review_stability": True,
             "legacy_llm_suggest_disabled": True,
+            "legacy_execute_disabled": True,
             "llm_cache_deterministic": True,
+            "llm_provider_compatibility_modes": True,
+            "llm_prompt_json_compat": True,
+            "llm_strict_schema_fixed": True,
+            "llm_error_taxonomy": True,
             "packaging_ready": True,
             "release_zip": True,
             "artifact_manifest": True,
@@ -188,6 +205,14 @@ def capabilities() -> dict:
             "portable_mode": True,
             "appdata_mode": True,
             "health_check": True,
+            "beta_ux_polish": True,
+            "diagnostics_panel": True,
+            "first_run_helper": True,
+            "ui_error_explanations": True,
+            "release_candidate_polish": True,
+            "ui_explanation_coverage": True,
+            "diagnostics_summary": True,
+            "quarantine_reason_explanations": True,
         },
     }
 
@@ -227,6 +252,70 @@ def api_health(_token: None = Depends(require_token)) -> dict:
         "static_ok": static_ok,
         "data_dir_writable": data_writable,
         "keyring_ok": _keyring_available(),
+    }
+
+
+def _safe_runtime_path_label(kind: str, mode: str) -> str:
+    if mode == "portable":
+        return f"<portable>\\{kind}"
+    if mode == "appdata":
+        if kind == "data":
+            return "<LOCALAPPDATA>\\AVcleaner"
+        return f"<LOCALAPPDATA>\\AVcleaner\\{kind}"
+    return f"<AVCLEANER_DATA_DIR>\\{kind}"
+
+
+@app.get("/api/diagnostics")
+def api_diagnostics(_token: None = Depends(require_token)) -> dict:
+    paths = runtime_path_info()
+    health = api_health()
+    settings = get_settings()
+    safe_health = {
+        key: value
+        for key, value in health.items()
+        if key not in {"data_dir", "logs_dir", "quarantine_dir"}
+    }
+    caps = capabilities()["capabilities"]
+    summary = {
+        "version": __version__,
+        "runtime_mode": paths.mode,
+        "packaging_mode": "packaged" if is_frozen() else "source",
+        "data_dir_writable": bool(safe_health.get("data_dir_writable")),
+        "database_ok": bool(safe_health.get("database_ok")),
+        "templates_ok": bool(safe_health.get("templates_ok")),
+        "static_ok": bool(safe_health.get("static_ok")),
+        "keyring_ok": bool(safe_health.get("keyring_ok")),
+        "legacy_execute_disabled": True,
+        "generic_llm_suggest_disabled": True,
+        "llm_configured": settings.llm.provider != "disabled" and bool(settings.llm.model),
+        "send_full_path_default": False,
+        "llm_send_full_path": bool(settings.llm.send_full_path),
+    }
+    return {
+        "summary": summary,
+        "app": {
+            "name": "AVcleaner",
+            "version": __version__,
+        },
+        "runtime": {
+            "mode": paths.mode,
+            "packaging_mode": "packaged" if is_frozen() else "source",
+            "data_dir": _safe_runtime_path_label("data", paths.mode),
+            "logs_dir": _safe_runtime_path_label("logs", paths.mode),
+            "quarantine_dir": _safe_runtime_path_label("quarantine", paths.mode),
+        },
+        "health": safe_health,
+        "capabilities": caps,
+        "endpoint_status": {
+            "legacy_execute": "disabled",
+            "generic_llm_suggest": "disabled",
+        },
+        "redaction": {
+            "secrets": "redacted",
+            "auth_headers": "omitted",
+            "llm_payloads": "omitted",
+            "local_media_paths": "omitted",
+        },
     }
 
 
@@ -378,8 +467,8 @@ def api_execute_plan(plan_id: str, request: PlanExecuteRequest, _token: None = D
 
 
 @app.post("/api/execute")
-def api_execute_legacy(request: ExecuteRequest, _token: None = Depends(require_token)):
-    return execute_plan(request)
+def api_execute_legacy(_token: None = Depends(require_token)):
+    raise AppError(IssueCode.LEGACY_EXECUTE_DISABLED, 410)
 
 
 @app.post("/api/plans/{plan_id}/llm/payload-preview")

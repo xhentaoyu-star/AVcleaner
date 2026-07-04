@@ -122,9 +122,11 @@ def _suggest_item_from_preview(item: PlanItem, preview: LLMSuggestionPayloadPrev
 
 
 def _cache_key(provider: str, model: str, item: PlanItem, preview: LLMSuggestionPayloadPreview) -> tuple[str, str]:
+    settings = get_settings()
     payload = {
         "provider": provider,
         "model": model,
+        "compatibility_mode": str(llm.provider_mode(settings.llm.model_copy(update={"provider": provider, "model": model}))),
         "schema_version": SCHEMA_VERSION,
         "prompt_version": PROMPT_VERSION,
         "filename": preview.filename.lower(),
@@ -172,9 +174,29 @@ def _issues_for_suggestion(record, item: PlanItem, suggested_name: str) -> list[
     return next(current.issues for current in validated if current.id == item.id)
 
 
+def _llm_issue_code_from_validation(issues: list[ValidationIssue]) -> str:
+    codes = {str(issue.code) for issue in issues if issue.blocking}
+    if str(IssueCode.PATH_SEPARATOR_IN_TARGET) in codes or str(IssueCode.ALTERNATE_DATA_STREAM) in codes:
+        return str(IssueCode.LLM_PATH_LIKE_SUGGESTION)
+    if str(IssueCode.EXTENSION_CHANGED) in codes:
+        return str(IssueCode.LLM_EXTENSION_CHANGED)
+    if str(IssueCode.RESERVED_NAME) in codes or str(IssueCode.RESERVED_NAME_WITH_EXTENSION) in codes:
+        return str(IssueCode.LLM_RESERVED_NAME)
+    if str(IssueCode.DUPLICATE_TARGET) in codes or str(IssueCode.TARGET_EXISTS) in codes:
+        return str(IssueCode.LLM_TARGET_CONFLICT)
+    if codes:
+        return str(IssueCode.LLM_INVALID_WINDOWS_NAME)
+    return str(IssueCode.LLM_SUGGESTION_INVALID)
+
+
 def _record_from_suggestion(record, item: PlanItem, settings, suggestion: LLMSuggestion, payload_hash: str) -> LLMSuggestionRecord:
     validation_issues = _issues_for_suggestion(record, item, suggestion.suggested_name)
     status = "invalid" if any(issue.blocking for issue in validation_issues) else "valid"
+    warnings = list(suggestion.warnings)
+    if status == "invalid":
+        code = _llm_issue_code_from_validation(validation_issues)
+        if code not in warnings:
+            warnings.append(code)
     response_payload = suggestion.model_dump(mode="json")
     return LLMSuggestionRecord(
         suggestion_id=new_id("llmsug"),
@@ -191,7 +213,7 @@ def _record_from_suggestion(record, item: PlanItem, settings, suggestion: LLMSug
         removed_tokens=suggestion.removed_tokens,
         confidence=suggestion.confidence,
         reason=suggestion.reason,
-        warnings=suggestion.warnings,
+        warnings=warnings,
         validation_issues=validation_issues,
         status=status,
         created_at=utc_now_iso(),
@@ -237,6 +259,8 @@ async def generate_llm_suggestions(plan_id: str, request: PlanLLMSuggestRequest)
                 type("Request", (), {"items": request_items, "settings": settings})(),
                 settings,
             )
+        except llm.LLMResponseError as exc:
+            raise AppError(exc.error_code, 400, exc.sanitized_message) from exc
         except ValueError as exc:
             raise AppError(IssueCode.LLM_SCHEMA_INVALID, 400) from exc
         except TimeoutError as exc:

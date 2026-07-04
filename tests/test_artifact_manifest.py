@@ -37,7 +37,7 @@ def run_create_release_zip(dist: Path, release_dir: Path) -> subprocess.Complete
             "-ReleaseDir",
             str(release_dir),
             "-Version",
-            "0.5.1",
+            "0.6.1",
             "-SmokeTested",
         ],
         cwd=ROOT,
@@ -54,8 +54,8 @@ def test_release_zip_script_generates_zip_checksum_and_manifest(tmp_path: Path) 
     result = run_create_release_zip(dist, release_dir)
 
     assert result.returncode == 0, result.stderr + result.stdout
-    zip_path = release_dir / "AVcleaner-v0.5.1-portable-win-x64.zip"
-    sha_path = release_dir / "AVcleaner-v0.5.1-portable-win-x64.zip.sha256"
+    zip_path = release_dir / "AVcleaner-v0.6.1-portable-win-x64.zip"
+    sha_path = release_dir / "AVcleaner-v0.6.1-portable-win-x64.zip.sha256"
     manifest_path = release_dir / "artifact-manifest.json"
     assert zip_path.exists()
     assert sha_path.exists()
@@ -63,7 +63,7 @@ def test_release_zip_script_generates_zip_checksum_and_manifest(tmp_path: Path) 
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["app_name"] == "AVcleaner"
-    assert manifest["version"] == "0.5.1"
+    assert manifest["version"] == "0.6.1"
     assert manifest["artifact_name"] == zip_path.name
     assert len(manifest["artifact_sha256"]) == 64
     assert manifest["smoke_tested"] is True

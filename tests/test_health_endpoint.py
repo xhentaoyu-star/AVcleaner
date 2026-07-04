@@ -14,7 +14,7 @@ def test_health_reports_runtime_checks(client, auth_headers: dict[str, str]) -> 
     assert response.status_code == 200
     body = response.json()
     assert body["ok"] is True
-    assert body["version"] == "0.5.1"
+    assert body["version"] == "0.6.1"
     assert body["mode"] in {"dev", "portable", "appdata"}
     assert body["database_ok"] is True
     assert body["templates_ok"] is True
@@ -26,14 +26,15 @@ def test_health_reports_runtime_checks(client, auth_headers: dict[str, str]) -> 
     assert body["quarantine_dir"]
 
 
-def test_capabilities_exposes_v050_packaging_features(client) -> None:
+def test_capabilities_exposes_v061_packaging_features(client) -> None:
     response = client.get("/api/capabilities")
 
     assert response.status_code == 200
     body = response.json()
-    assert body["version"] == "0.5.1"
+    assert body["version"] == "0.6.1"
     assert body["capabilities"]["packaging_ready"] is True
     assert body["capabilities"]["portable_mode"] is True
     assert body["capabilities"]["appdata_mode"] is True
     assert body["capabilities"]["health_check"] is True
     assert body["capabilities"]["legacy_llm_suggest_disabled"] is True
+    assert body["capabilities"]["legacy_execute_disabled"] is True

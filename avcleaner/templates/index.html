@@ -9,12 +9,15 @@
   </head>
   <body>
     <header class="topbar">
-      <div>
-        <h1>AVcleaner</h1>
-        <span class="version">v{{ version }}</span>
+      <div class="brand">
+        <div>
+          <h1>AVcleaner</h1>
+          <span class="version">v{{ version }}</span>
+        </div>
+        <span class="mode-chip">模式 <strong id="currentMode">-</strong></span>
       </div>
-      <nav>
-        <button data-tab="workspace" class="active">整理</button>
+      <nav aria-label="主导航">
+        <button data-tab="workspace" class="active">工作台</button>
         <button data-tab="trash">隔离</button>
         <button data-tab="history">历史</button>
         <button data-tab="settings">设置</button>
@@ -22,164 +25,288 @@
     </header>
 
     <main id="app">
-      <section class="toolbar">
-        <input id="rootPath" type="text" placeholder="L:\downloads" />
-        <button id="scanBtn">扫描</button>
-        <button id="planBtn">生成预览</button>
-        <button id="validateBtn">重新校验</button>
-        <button id="llmBtn">LLM 建议</button>
-        <button id="executeBtn" class="danger">执行选中</button>
-      </section>
-
-      <section class="plan-summary">
-        <span>Scan: <strong id="scanId">-</strong></span>
-        <span>Plan: <strong id="planId">-</strong></span>
-        <span>Hash: <strong id="planHash">-</strong></span>
-        <span>Blocking: <strong id="blockingCount">0</strong></span>
-        <select id="filterSelect">
-          <option value="all">全部</option>
-          <option value="blocking">仅错误</option>
-          <option value="warning">仅警告</option>
-        </select>
-      </section>
-
-      <section class="metrics">
-        <div><strong id="metricFiles">0</strong><span>文件</span></div>
-        <div><strong id="metricRename">0</strong><span>改名</span></div>
-        <div><strong id="metricReview">0</strong><span>复核</span></div>
-        <div><strong id="metricTrash">0</strong><span>隔离</span></div>
+      <section id="firstRunHelper" class="notice" hidden>
+        <div>
+          <h2>第一次使用</h2>
+          <p>AVcleaner 的数据保存在本机。扫描和预览不会改动文件，只有点击执行选中并确认后才会改名或隔离。LLM 默认只发送文件名，并且只给建议，不会自动执行。</p>
+          <ol>
+            <li>选择文件夹</li>
+            <li>扫描</li>
+            <li>生成预览</li>
+            <li>复核</li>
+            <li>执行选中</li>
+            <li>需要时回滚</li>
+          </ol>
+        </div>
+        <button id="firstRunDismissBtn">知道了</button>
       </section>
 
       <section data-panel="workspace" class="panel active">
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th class="check-col"></th>
-                <th>状态</th>
-                <th>原文件名</th>
-                <th>建议文件名</th>
-                <th>来源</th>
-                <th>置信度</th>
-                <th>原因</th>
-                <th>警告</th>
-                <th>Group</th>
-                <th>Sidecar</th>
-                <th>Trace</th>
-              </tr>
-            </thead>
-            <tbody id="planBody"></tbody>
-          </table>
-        </div>
+        <section class="step-section">
+          <div class="section-heading">
+            <span>Step 1</span>
+            <h2>选择/扫描文件夹</h2>
+          </div>
+          <div class="toolbar">
+            <input id="rootPath" type="text" placeholder="L:\downloads" />
+            <button id="scanBtn">扫描</button>
+            <button id="planBtn" class="primary">生成预览</button>
+            <button id="validateBtn">重新校验</button>
+            <span id="loadingState" class="loading-state" aria-live="polite"></span>
+          </div>
+        </section>
+
+        <section class="metrics" aria-label="预览摘要">
+          <button class="metric-card" data-filter="all"><strong id="metricFiles">0</strong><span>总文件</span></button>
+          <button class="metric-card" data-filter="all"><strong id="metricRename">0</strong><span>改名</span></button>
+          <button class="metric-card" data-filter="junk_candidate"><strong id="metricQuarantine">0</strong><span>隔离</span></button>
+          <button class="metric-card" data-filter="sidecar"><strong id="metricSidecar">0</strong><span>关联文件</span></button>
+          <button class="metric-card" data-filter="selected"><strong id="metricSelected">0</strong><span>已选</span></button>
+          <button class="metric-card" data-filter="blocking"><strong id="metricBlocking">0</strong><span>阻止</span></button>
+          <button class="metric-card" data-filter="warning"><strong id="metricWarning">0</strong><span>警告</span></button>
+          <button class="metric-card" data-filter="requires_review"><strong id="metricReview">0</strong><span>需复核</span></button>
+          <button class="metric-card" data-filter="manual_edited"><strong id="metricManual">0</strong><span>手动修改</span></button>
+        </section>
+
+        <section class="step-section">
+          <div class="section-heading">
+            <span>Step 2</span>
+            <h2>生成预览</h2>
+          </div>
+          <div class="plan-summary">
+            <span>Scan <strong id="scanId">-</strong></span>
+            <span>Plan <strong id="planId">-</strong></span>
+            <span>状态 <strong id="planState">-</strong></span>
+            <span>Hash <strong id="planHash">-</strong></span>
+            <span>Blocking <strong id="blockingCount">0</strong></span>
+          </div>
+        </section>
+
+        <section class="step-section">
+          <div class="section-heading">
+            <span>Step 3</span>
+            <h2>复核与选择</h2>
+          </div>
+          <div class="review-toolbar">
+            <label>
+              筛选
+              <select id="filterSelect"></select>
+            </label>
+            <button id="selectSafeBtn">选择安全项</button>
+            <button id="clearSelectionBtn">清空选择</button>
+            <button id="exportPlanJsonBtn">导出 JSON</button>
+            <button id="exportPlanCsvBtn">导出 CSV</button>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th class="check-col"></th>
+                  <th>状态</th>
+                  <th>原文件名</th>
+                  <th>建议文件名</th>
+                  <th>说明</th>
+                  <th>复核信息</th>
+                  <th>LLM 建议</th>
+                  <th>详情</th>
+                </tr>
+              </thead>
+              <tbody id="planBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <details id="llmSection" class="step-section llm-section" hidden>
+          <summary>
+            <span>Step 4</span>
+            <strong>LLM 建议</strong>
+          </summary>
+          <p class="privacy-note">LLM 只提供建议，不会自动执行，不会自动选择。默认只发送文件名、扩展名、规则建议、番号、关联文件信息和邻近文件名。</p>
+          <div class="review-toolbar">
+            <button id="previewLlmPayloadBtn">预览 LLM 载荷</button>
+            <button id="llmBtn">请求 LLM 建议</button>
+          </div>
+        </details>
+
+        <section class="step-section">
+          <div class="section-heading">
+            <span>Step 5</span>
+            <h2>执行与回滚</h2>
+          </div>
+          <div class="execute-strip">
+            <div>
+              <strong>已选 <span id="selectedCount">0</span> 项</strong>
+              <p id="executeReason">会先显示执行摘要，并再次要求确认。</p>
+            </div>
+            <button id="executionSummaryBtn">执行摘要</button>
+            <button id="executeBtn" class="danger">执行选中</button>
+          </div>
+          <pre id="executionSummaryResult" class="test-result"></pre>
+        </section>
       </section>
 
       <section data-panel="trash" class="panel">
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>文件名</th>
-                <th>路径</th>
-                <th>原因</th>
-                <th>大小</th>
-              </tr>
-            </thead>
-            <tbody id="trashBody"></tbody>
-          </table>
-        </div>
+        <section class="step-section">
+          <div class="section-heading">
+            <span>隔离预览</span>
+            <h2>垃圾候选</h2>
+          </div>
+          <p class="privacy-note">隔离不是永久删除，可通过回滚恢复。大文件隔离可能耗时，但仍不会永久删除。</p>
+          <div class="table-wrap small-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>文件名</th>
+                  <th>路径</th>
+                  <th>原因</th>
+                  <th>是否选中</th>
+                  <th>大小</th>
+                </tr>
+              </thead>
+              <tbody id="trashBody"></tbody>
+            </table>
+          </div>
+        </section>
       </section>
 
       <section data-panel="history" class="panel">
-        <div class="history-actions">
-          <button id="refreshRunsBtn">刷新历史</button>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>批次</th>
-                <th>时间</th>
-                <th>状态</th>
-                <th>摘要</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="runsBody"></tbody>
-          </table>
-        </div>
+        <section class="step-section">
+          <div class="section-heading">
+            <span>历史</span>
+            <h2>执行批次与回滚</h2>
+          </div>
+          <div class="history-actions">
+            <button id="refreshRunsBtn">刷新历史</button>
+          </div>
+          <div class="table-wrap small-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>批次</th>
+                  <th>时间</th>
+                  <th>状态</th>
+                  <th>摘要</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="runsBody"></tbody>
+            </table>
+          </div>
+        </section>
       </section>
 
       <section data-panel="settings" class="panel settings-grid">
-        <label>
-          Provider
-          <select id="llmProvider">
-            <option value="disabled">disabled</option>
-            <option value="openai_compatible">openai_compatible</option>
-            <option value="ollama">ollama</option>
-          </select>
-        </label>
-        <label>
-          Base URL
-          <input id="llmBaseUrl" type="text" placeholder="http://127.0.0.1:11434" />
-        </label>
-        <label>
-          Model
-          <input id="llmModel" type="text" placeholder="gpt-4.1-mini" />
-        </label>
-        <label>
-          API Key
-          <input id="llmApiKey" type="password" />
-        </label>
-        <label class="inline">
-          <input id="llmSendPath" type="checkbox" />
-          发送完整路径
-        </label>
-        <button id="testLlmBtn">测试 LLM</button>
-        <pre id="llmTestResult" class="test-result"></pre>
-        <label>
-          Rule output template
-          <input id="ruleOutputTemplate" type="text" placeholder="{code}{part}{variant}{language}{ext}" />
-        </label>
-        <label>
-          Remove ad domains
-          <textarea id="ruleRemoveAdDomains" rows="3" placeholder="one domain per line"></textarea>
-        </label>
-        <label>
-          Remove noise tokens
-          <textarea id="ruleRemoveNoiseTokens" rows="3" placeholder="one token per line"></textarea>
-        </label>
-        <label class="inline">
-          <input id="rulePreserveSidecarLanguage" type="checkbox" />
-          Preserve sidecar language
-        </label>
-        <label class="inline">
-          <input id="rulePreserveVariant" type="checkbox" />
-          Preserve variant
-        </label>
-        <label class="inline">
-          <input id="rulePreservePartSuffix" type="checkbox" />
-          Preserve part suffix
-        </label>
-        <label>
-          Review threshold
-          <input id="ruleReviewThreshold" type="number" min="0" max="1" step="0.01" />
-        </label>
-        <label>
-          Rule Test
-          <input id="ruleTestFilename" type="text" placeholder="[ad.com] FC2-PPV-1234567_1.mp4" />
-        </label>
-        <button id="testRuleBtn">测试规则</button>
-        <pre id="ruleTestResult" class="test-result"></pre>
-        <button id="exportSettingsBtn">Export settings</button>
-        <pre id="settingsExportResult" class="test-result"></pre>
-        <label>
-          Import settings JSON
-          <textarea id="settingsImportPayload" rows="6"></textarea>
-        </label>
-        <button id="importSettingsDryRunBtn">Import dry run</button>
-        <button id="applyImportSettingsBtn">Apply import</button>
-        <pre id="settingsImportResult" class="test-result"></pre>
-        <button id="saveSettingsBtn">保存设置</button>
+        <section class="settings-section">
+          <h2>LLM 设置</h2>
+          <label>
+            供应商
+            <select id="llmProvider">
+              <option value="disabled">禁用</option>
+              <option value="openai_compatible">OpenAI 兼容</option>
+              <option value="ollama">Ollama</option>
+            </select>
+          </label>
+          <label>
+            兼容模式
+            <select id="llmCompatibilityMode">
+              <option value="openai_strict_json_schema">Strict OpenAI JSON Schema</option>
+              <option value="prompt_json_compat">Prompt JSON compatibility</option>
+              <option value="claude_gateway_compat">Claude gateway compatibility</option>
+              <option value="ollama_format_json">Ollama</option>
+            </select>
+          </label>
+          <div id="llmModeHelp" class="help-box"></div>
+          <label>
+            Base URL
+            <input id="llmBaseUrl" type="text" placeholder="http://127.0.0.1:11434" />
+          </label>
+          <label>
+            模型
+            <input id="llmModel" type="text" placeholder="gpt-4.1-mini" />
+          </label>
+          <label>
+            API Key
+            <input id="llmApiKey" type="password" autocomplete="off" />
+          </label>
+          <label class="inline">
+            <input id="llmSendPath" type="checkbox" />
+            发送完整路径
+          </label>
+          <button id="testLlmBtn">测试 LLM</button>
+          <div id="llmTestSummary" class="diagnostics-summary"></div>
+          <pre id="llmTestResult" class="test-result"></pre>
+        </section>
+
+        <section class="settings-section">
+          <h2>规则设置</h2>
+          <label>
+            输出模板
+            <input id="ruleOutputTemplate" type="text" placeholder="{code}{part}{variant}{language}{ext}" />
+          </label>
+          <label>
+            删除广告域名
+            <textarea id="ruleRemoveAdDomains" rows="3" placeholder="每行一个域名"></textarea>
+          </label>
+          <label>
+            删除噪声词
+            <textarea id="ruleRemoveNoiseTokens" rows="3" placeholder="每行一个词"></textarea>
+          </label>
+          <label class="inline">
+            <input id="rulePreserveSidecarLanguage" type="checkbox" />
+            保留字幕语言后缀
+          </label>
+          <label class="inline">
+            <input id="rulePreserveVariant" type="checkbox" />
+            保留版本标记
+          </label>
+          <label class="inline">
+            <input id="rulePreservePartSuffix" type="checkbox" />
+            保留分集后缀
+          </label>
+          <label>
+            复核阈值
+            <input id="ruleReviewThreshold" type="number" min="0" max="1" step="0.01" />
+          </label>
+          <label>
+            规则测试
+            <input id="ruleTestFilename" type="text" placeholder="[ad.com] FC2-PPV-1234567_1.mp4" />
+          </label>
+          <button id="testRuleBtn">测试规则</button>
+          <pre id="ruleTestResult" class="test-result"></pre>
+        </section>
+
+        <section class="settings-section">
+          <h2>导入/导出设置</h2>
+          <button id="exportSettingsBtn">导出设置</button>
+          <pre id="settingsExportResult" class="test-result"></pre>
+          <label>
+            导入设置 JSON
+            <textarea id="settingsImportPayload" rows="6"></textarea>
+          </label>
+          <div class="review-toolbar">
+            <button id="importSettingsDryRunBtn">试运行导入</button>
+            <button id="applyImportSettingsBtn">应用导入</button>
+            <button id="saveSettingsBtn" class="primary">保存设置</button>
+          </div>
+          <pre id="settingsImportResult" class="test-result"></pre>
+        </section>
+
+        <section class="settings-section">
+          <h2>诊断</h2>
+          <p class="privacy-note">诊断 JSON 会省略密钥、认证头、原始 LLM 载荷和完整媒体路径。</p>
+          <div class="review-toolbar">
+            <button id="refreshDiagnosticsBtn">刷新诊断</button>
+            <button id="copyDiagnosticsBtn">复制诊断 JSON</button>
+            <button disabled title="打包模式下打开文件夹容易暴露本机路径，暂缓开放。">打开日志文件夹</button>
+            <button disabled title="打包模式下打开文件夹容易暴露本机路径，暂缓开放。">打开数据文件夹</button>
+          </div>
+          <div id="diagnosticsSummary" class="diagnostics-summary"></div>
+          <details id="diagnosticsRawJson" class="raw-json">
+            <summary>原始诊断 JSON</summary>
+            <pre id="diagnosticsResult" class="test-result"></pre>
+          </details>
+        </section>
       </section>
     </main>
 

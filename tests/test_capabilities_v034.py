@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 
-def test_capabilities_exposes_v050_release_features(client) -> None:
+def test_capabilities_exposes_v061_release_features(client) -> None:
     response = client.get("/api/capabilities")
 
     assert response.status_code == 200
     body = response.json()
-    assert body["version"] == "0.5.1"
+    assert body["version"] == "0.6.1"
     assert body["capabilities"]["manual_review"] is True
     assert body["capabilities"]["persisted_selection"] is True
     assert body["capabilities"]["plan_export"] is True
@@ -25,3 +25,12 @@ def test_capabilities_exposes_v050_release_features(client) -> None:
     assert body["capabilities"]["portable_mode"] is True
     assert body["capabilities"]["appdata_mode"] is True
     assert body["capabilities"]["health_check"] is True
+    assert body["capabilities"]["llm_provider_compatibility_modes"] is True
+    assert body["capabilities"]["llm_prompt_json_compat"] is True
+    assert body["capabilities"]["llm_strict_schema_fixed"] is True
+    assert body["capabilities"]["llm_error_taxonomy"] is True
+    assert body["capabilities"]["legacy_execute_disabled"] is True
+    assert body["capabilities"]["beta_ux_polish"] is True
+    assert body["capabilities"]["diagnostics_panel"] is True
+    assert body["capabilities"]["first_run_helper"] is True
+    assert body["capabilities"]["ui_error_explanations"] is True

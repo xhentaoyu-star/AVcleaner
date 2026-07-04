@@ -41,6 +41,7 @@ def test_release_checklist_documents_required_gates() -> None:
     assert "build_portable.ps1" in text
     assert "check_artifact.ps1" in text
     assert "smoke_packaged.ps1" in text
+    assert "smoke_release_zip.ps1" in text
     assert "legacy_execute_disabled" in text
     assert "legacy_llm_suggest_disabled" in text
     assert "Windows 10/11 x64" in text
@@ -54,9 +55,11 @@ def test_packaging_readme_documents_portable_mode_and_no_secrets() -> None:
 
     assert "PyInstaller" in text
     assert "create_release_zip.ps1" in text
+    assert "smoke_release_zip.ps1" in text
     assert "-RunTempExecution" in text
     assert "portable.flag" in text
     assert "data" in text
     assert "logs" in text
     assert "quarantine" in text
     assert "API keys" in text
+    assert "git_dirty=false" in text

@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "0.5.1",
+  [string]$Version = "0.6.1",
   [string]$DistPath = "",
   [string]$ReleaseDir = "",
   [switch]$Build,
@@ -77,6 +77,12 @@ function Invoke-OptionalCommand([scriptblock]$Command) {
   }
 }
 
+function Get-ReleaseGitStatus([string]$RepoRoot) {
+  Invoke-OptionalCommand {
+    git -C $RepoRoot status --porcelain --untracked-files=normal -- . ":(exclude)dist" ":(exclude)build" ":(exclude)release"
+  }
+}
+
 function Set-Utf8NoBom([string]$Path, [string]$Content) {
   $utf8 = [System.Text.UTF8Encoding]::new($false)
   [System.IO.File]::WriteAllText($Path, $Content, $utf8)
@@ -109,7 +115,7 @@ if (-not ((Test-Path -LiteralPath (Join-Path $PackageDir "README.md")) -or (Test
 }
 
 $GitCommit = Invoke-OptionalCommand { git -C $Root rev-parse HEAD }
-$GitStatus = Invoke-OptionalCommand { git -C $Root status --porcelain }
+$GitStatus = Get-ReleaseGitStatus $Root
 $GitDirty = -not [string]::IsNullOrWhiteSpace($GitStatus)
 $PythonVersion = if (Test-Path -LiteralPath $Python) { Invoke-OptionalCommand { & $Python --version } } else { "" }
 $PyInstallerVersion = if (Test-Path -LiteralPath $Python) { Invoke-OptionalCommand { & $Python -m PyInstaller --version } } else { "" }

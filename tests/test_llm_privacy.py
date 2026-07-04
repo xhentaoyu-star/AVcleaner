@@ -37,6 +37,7 @@ def test_llm_rejects_path_like_suggested_name() -> None:
                 "media_code": "ABP-123",
                 "part_suffix": "",
                 "variant": "",
+                "language_suffix": "",
                 "removed_tokens": [],
                 "confidence": 0.9,
                 "reason": "",

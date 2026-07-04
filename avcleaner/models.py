@@ -190,6 +190,9 @@ class FilesystemConfig(StrictModel):
 
 class LLMSettings(StrictModel):
     provider: Literal["disabled", "openai_compatible", "ollama"] = "disabled"
+    compatibility_mode: Literal["openai_strict_json_schema", "prompt_json_compat", "claude_gateway_compat", "ollama_format_json"] = (
+        "openai_strict_json_schema"
+    )
     base_url: str = ""
     api_key: str = ""
     model: str = ""
@@ -202,6 +205,7 @@ class LLMSettings(StrictModel):
 
 class AppSettings(StrictModel):
     schema_version: int = 3
+    first_run_seen: bool = False
     video_extensions: list[str] = Field(default_factory=lambda: sorted(VIDEO_EXTENSIONS))
     sidecar_extensions: list[str] = Field(default_factory=lambda: sorted(SIDECAR_EXTENSIONS))
     exclude_dirs: list[str] = Field(default_factory=list)
@@ -516,6 +520,12 @@ class LLMTestResponse(StrictModel):
     ok: bool
     provider: str
     model: str
+    compatibility_mode: str = ""
+    used_response_format_json_schema: bool = False
+    json_extracted: bool = False
+    stage: str = ""
+    field_path: str = ""
+    safety_valid: bool = False
     latency_ms: int = 0
     schema_valid: bool = False
     payload_preview: dict[str, Any] = Field(default_factory=dict)

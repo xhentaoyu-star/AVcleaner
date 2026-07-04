@@ -15,6 +15,7 @@ def test_llm_payload_validation() -> None:
                 "media_code": "ABP-123",
                 "part_suffix": "",
                 "variant": "",
+                "language_suffix": "",
                 "removed_tokens": ["hhd800.com"],
                 "confidence": 0.91,
                 "reason": "detected code",
@@ -38,4 +39,3 @@ def test_llm_prompt_omits_path_by_default() -> None:
 
     assert "hhd800.com@ABP-123.mp4" in prompt
     assert "L:\\secret" not in prompt
-

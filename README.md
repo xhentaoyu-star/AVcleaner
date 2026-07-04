@@ -5,7 +5,7 @@ file names before they enter a media library. It focuses on safe local file
 renaming, junk-file quarantine, preview, confirmation, execution history, and
 rollback.
 
-Current version: `0.5.1`.
+Current version: `0.6.1`.
 
 It intentionally does not scrape metadata, download covers, generate NFO files,
 or organize a final media library. Those jobs belong to OpenAver.
@@ -30,21 +30,42 @@ or organize a final media library. Those jobs belong to OpenAver.
 - Manual review workflow with persisted selection state, review buckets,
   safe-item selection, inline `target_name` edits, execution summaries, and
   JSON/CSV plan export.
-- Review-only LLM suggestions with payload privacy preview, deterministic
-  suggestion cache, explicit accept/reject workflow, stale-suggestion checks,
-  and manual-edit conflict protection.
+- Review-only LLM suggestions with payload privacy preview, provider
+  compatibility modes, deterministic suggestion cache, explicit accept/reject
+  workflow, stale-suggestion checks, and manual-edit conflict protection.
 - Sidecar awareness for subtitles, images, and NFO files.
 - Subtitle language suffix preservation, for example `.zh.srt`, `.chs.ass`,
   `.zh-CN.srt`, and `.zh-Hans.srt`.
 - Associated-file preview grouping by detected media code; sidecar rename
   suggestions are visible but not selected by default.
-- LLM suggestion provider interface for OpenAI-compatible APIs and Ollama.
+- LLM provider interface for strict OpenAI-compatible JSON Schema, prompt JSON
+  compatibility gateways such as Claude/Anthropic middle layers, and Ollama.
 - Preview-first workflow with conflict and safety validation.
 - SQLite run history.
 - Quarantine area with rollback instead of permanent deletion.
 - Windows portable packaging scripts, release zip/checksum generation, artifact
   manifest, artifact sanity checks, packaged smoke tests, packaged temp
   execution smoke, and a token-protected health endpoint.
+
+## Release candidate GUI workflow
+
+The v0.6.1 release candidate GUI is organized for review clarity:
+
+1. Choose a folder and scan.
+2. Generate preview. This still does not touch files.
+3. Review and select. Stable backend codes are kept in the data, while the GUI
+   shows Chinese labels, explanations, and suggested actions.
+4. Open LLM suggestions only when needed. The LLM section is collapsed by
+   default and appears after a plan exists.
+5. Show execution summary, then execute selected items with explicit
+   confirmation.
+6. Use history to roll back a run when needed.
+
+`阻止` means AVcleaner will not execute that item. `警告` means review before
+executing. `需复核` means the rule result is visible, but the user should make
+the decision. `隔离` means 隔离不是永久删除; quarantined files can be restored
+through rollback. Associated files such as subtitles, images, and NFO files are
+visible in the same workflow but are not selected by default.
 
 ## Quick Start
 
@@ -96,7 +117,9 @@ Build a portable package:
 .\scripts\smoke_packaged.ps1 .\dist\AVcleaner
 .\scripts\smoke_packaged.ps1 .\dist\AVcleaner -RunTempExecution
 .\packaging\create_release_zip.ps1 -SmokeTested
-.\scripts\check_artifact.ps1 .\release\AVcleaner-v0.5.1-portable-win-x64.zip
+.\scripts\check_artifact.ps1 .\release\AVcleaner-v0.6.1-portable-win-x64.zip
+.\scripts\smoke_release_zip.ps1 .\release\AVcleaner-v0.6.1-portable-win-x64.zip
+Get-FileHash .\release\AVcleaner-v0.6.1-portable-win-x64.zip -Algorithm SHA256
 ```
 
 `smoke_packaged.ps1` is non-mutating by default. The `-RunTempExecution` mode
@@ -108,8 +131,8 @@ the temp paths on failure for debugging.
 `create_release_zip.ps1` produces:
 
 ```text
-release\AVcleaner-v0.5.1-portable-win-x64.zip
-release\AVcleaner-v0.5.1-portable-win-x64.zip.sha256
+release\AVcleaner-v0.6.1-portable-win-x64.zip
+release\AVcleaner-v0.6.1-portable-win-x64.zip.sha256
 release\artifact-manifest.json
 ```
 
@@ -140,8 +163,14 @@ added when a build exists:
   cannot be selected, and sidecar rename suggestions are only selected when the
   user explicitly chooses them.
 - Cloud LLM requests send filenames only by default, not full paths.
+- OpenAI-compatible providers default to strict JSON Schema. Prompt JSON
+  compatibility modes accept fenced/surrounded JSON or a single suggestion
+  object only at the raw parsing boundary, then normalize to the canonical
+  batch shape.
 - LLM suggestions never execute directly, never auto-select items, and never
   replace `target_name` until the user explicitly accepts one.
+- LLM output still must pass strict canonical validation and the normal
+  filesystem validators before it can be stored as a valid review suggestion.
 - Plan-level LLM endpoints are the supported path. Generic
   `POST /api/llm/suggest` is disabled with
   `error_code=legacy_llm_suggest_disabled`.
@@ -223,6 +252,40 @@ Legacy `POST /api/execute` remains disabled with `410` and
 Legacy generic `POST /api/llm/suggest` remains token-protected but is disabled
 with `410` and `error_code=legacy_llm_suggest_disabled`. Use the plan-level LLM
 review endpoints instead.
+
+## LLM Provider Compatibility
+
+Supported modes:
+
+- `openai_strict_json_schema`: sends OpenAI `response_format=json_schema` with
+  `strict: true`; this is the default for OpenAI-compatible settings.
+- `prompt_json_compat`: avoids `response_format` and instructs the provider to
+  return exactly one JSON object.
+- `claude_gateway_compat`: same prompt-JSON request style, with parser support
+  for common gateway outputs such as Markdown fenced JSON and a single
+  suggestion object.
+- `ollama_format_json`: keeps Ollama's JSON format behavior.
+
+This is a wide-input, strict-output layer. Compatibility parsing may extract or
+wrap JSON, but it does not invent missing fields, repair unsafe names, change
+extensions, or bypass Pydantic validation and `validators.py`.
+Compatibility mode does not bypass validation.
+
+The GUI repeats the same rule in plain language: compatibility mode does not
+bypass validation, suggestions still need user acceptance, and LLM endpoints
+never execute files.
+
+## Known limitations
+
+- AVcleaner does not scrape metadata, download covers, generate NFO files, move
+  files into the final media library, or integrate with OpenAver databases.
+- It does not install or manage Radarr/Sonarr.
+- There is no installer yet; use the portable zip.
+- Diagnostics intentionally redact secrets, raw LLM payloads, and full media
+  paths. Open logs/data folder buttons are deferred in the packaged GUI because
+  exposing local paths from diagnostics is not worth the risk in this beta.
+- Clean Windows 10/11 manual verification may still be pending for a new release
+  artifact until the checklist in `RELEASE_CHECKLIST.md` is completed.
 
 ## Rule Quality Tooling
 
