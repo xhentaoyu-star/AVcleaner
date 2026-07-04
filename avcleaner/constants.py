@@ -1,9 +1,28 @@
 from __future__ import annotations
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".wmv", ".m4v", ".ts"}
-SIDECAR_EXTENSIONS = {".srt", ".ass", ".ssa", ".nfo", ".jpg", ".jpeg", ".png"}
+SIDECAR_EXTENSIONS = {".srt", ".ass", ".ssa", ".vtt", ".nfo", ".jpg", ".jpeg", ".png", ".webp"}
 JUNK_EXTENSIONS = {".url", ".torrent", ".parts", ".qkdownloading", ".xltd", ".aria2"}
 TEXT_JUNK_EXTENSIONS = {".txt", ".html", ".htm", ".mht"}
+
+RULE_TRACE_IDS = {
+    "unicode_normalize",
+    "trim_spaces",
+    "remove_ad_domain",
+    "remove_bracket_ad",
+    "remove_noise_token",
+    "detect_media_code",
+    "normalize_media_code",
+    "detect_part_suffix",
+    "detect_variant",
+    "detect_sidecar_language",
+    "preserve_sidecar_language",
+    "preserve_extension",
+    "render_template",
+    "manual_edit",
+    "llm_accept",
+    "windows_safe_name",
+}
 
 DEFAULT_EXCLUDE_DIRS = {
     ".git",
@@ -41,4 +60,3 @@ WINDOWS_RESERVED_NAMES = {
     *(f"COM{i}" for i in range(1, 10)),
     *(f"LPT{i}" for i in range(1, 10)),
 }
-

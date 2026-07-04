@@ -1,0 +1,10 @@
+[
+  {"input": "014248_141.mp4", "expected_suggested_name": "014248_141.mp4", "expected_code": "014248_141", "expected_part_suffix": "", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "numeric underscore"},
+  {"input": "123456_789.mp4", "expected_suggested_name": "123456_789.mp4", "expected_code": "123456_789", "expected_part_suffix": "", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "three digit suffix"},
+  {"input": "654321_98.mp4", "expected_suggested_name": "654321_98.mp4", "expected_code": "654321_98", "expected_part_suffix": "", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "two digit suffix"},
+  {"input": "[ad.com] 014248_141 1080p.mp4", "expected_suggested_name": "014248_141.mp4", "expected_code": "014248_141", "expected_part_suffix": "", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "ad and noise"},
+  {"input": "014248_141_1.mp4", "expected_suggested_name": "014248_141-1.mp4", "expected_code": "014248_141", "expected_part_suffix": "-1", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "part suffix"},
+  {"input": "014248_141-C.mp4", "expected_suggested_name": "014248_141-C.mp4", "expected_code": "014248_141", "expected_part_suffix": "", "expected_variant": "-C", "should_review": false, "expected_warning_codes": [], "notes": "variant"},
+  {"input": "777777_123-WEB-DL.mp4", "expected_suggested_name": "777777_123.mp4", "expected_code": "777777_123", "expected_part_suffix": "", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "noise"},
+  {"input": "888888_456-UC.mp4", "expected_suggested_name": "888888_456-UC.mp4", "expected_code": "888888_456", "expected_part_suffix": "", "expected_variant": "-UC", "should_review": false, "expected_warning_codes": [], "notes": "uc variant"}
+]

@@ -98,7 +98,7 @@ main {
 
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) repeat(4, auto);
+  grid-template-columns: minmax(260px, 1fr) repeat(5, auto);
   gap: 8px;
   align-items: center;
   margin-bottom: 12px;
@@ -109,6 +109,24 @@ main {
   grid-template-columns: repeat(4, minmax(120px, 1fr));
   gap: 8px;
   margin-bottom: 12px;
+}
+
+.plan-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 10px 12px;
+  color: var(--muted);
+}
+
+.plan-summary strong {
+  color: var(--text);
+  font-weight: 650;
 }
 
 .metrics div {
@@ -213,6 +231,22 @@ tbody tr:hover {
   color: var(--danger);
 }
 
+.trace-row td {
+  background: #fbfcfd;
+  color: var(--muted);
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12px;
+}
+
+.trace-list {
+  display: grid;
+  gap: 6px;
+}
+
+.trace-step {
+  overflow-wrap: anywhere;
+}
+
 .settings-grid {
   max-width: 760px;
   grid-template-columns: repeat(2, minmax(240px, 1fr));
@@ -258,6 +292,18 @@ tbody tr:hover {
   display: block;
 }
 
+.test-result {
+  grid-column: 1 / -1;
+  min-height: 120px;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  padding: 10px;
+  white-space: pre-wrap;
+}
+
 @media (max-width: 840px) {
   .topbar {
     align-items: flex-start;
@@ -276,4 +322,3 @@ tbody tr:hover {
     grid-template-columns: repeat(2, minmax(120px, 1fr));
   }
 }
-

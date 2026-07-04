@@ -1,0 +1,9 @@
+[
+  {"input": "[abc.com]ABP-123.mp4", "expected_suggested_name": "ABP-123.mp4", "expected_code": "ABP-123", "expected_part_suffix": "", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "bracket domain"},
+  {"input": "(promo.com)IPX-999.mp4", "expected_suggested_name": "IPX-999.mp4", "expected_code": "IPX-999", "expected_part_suffix": "", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "paren domain"},
+  {"input": "[hhd800.com] MIDE-456 720p.mp4", "expected_suggested_name": "MIDE-456.mp4", "expected_code": "MIDE-456", "expected_part_suffix": "", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "known bracket domain"},
+  {"input": "[release]SSIS-789-C.mp4", "expected_suggested_name": "SSIS-789-C.mp4", "expected_code": "SSIS-789", "expected_part_suffix": "", "expected_variant": "-C", "should_review": false, "expected_warning_codes": [], "notes": "bracket release marker"},
+  {"input": "[ad] JUQ-001_2.mp4", "expected_suggested_name": "JUQ-001-2.mp4", "expected_code": "JUQ-001", "expected_part_suffix": "-2", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "bracket ad marker"},
+  {"input": "[x18r.tv] PRED-321 WEB-DL.mp4", "expected_suggested_name": "PRED-321.mp4", "expected_code": "PRED-321", "expected_part_suffix": "", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "bracket domain and noise"},
+  {"input": "(ad.com) DASS-555-UC.mp4", "expected_suggested_name": "DASS-555-UC.mp4", "expected_code": "DASS-555", "expected_part_suffix": "", "expected_variant": "-UC", "should_review": false, "expected_warning_codes": [], "notes": "variant after bracket"}
+]

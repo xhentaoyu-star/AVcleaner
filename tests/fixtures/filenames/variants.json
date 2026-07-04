@@ -1,0 +1,9 @@
+[
+  {"input": "ABP-123-C.mp4", "expected_suggested_name": "ABP-123-C.mp4", "expected_code": "ABP-123", "expected_part_suffix": "", "expected_variant": "-C", "should_review": false, "expected_warning_codes": [], "notes": "c variant"},
+  {"input": "ABP123C.mp4", "expected_suggested_name": "ABP-123-C.mp4", "expected_code": "ABP-123", "expected_part_suffix": "", "expected_variant": "-C", "should_review": false, "expected_warning_codes": [], "notes": "compact c variant"},
+  {"input": "IPX-999-UC.mp4", "expected_suggested_name": "IPX-999-UC.mp4", "expected_code": "IPX-999", "expected_part_suffix": "", "expected_variant": "-UC", "should_review": false, "expected_warning_codes": [], "notes": "uc variant"},
+  {"input": "MIDE-456-U.mp4", "expected_suggested_name": "MIDE-456-U.mp4", "expected_code": "MIDE-456", "expected_part_suffix": "", "expected_variant": "-U", "should_review": false, "expected_warning_codes": [], "notes": "u variant"},
+  {"input": "SSIS-789-leak.mp4", "expected_suggested_name": "SSIS-789-LEAK.mp4", "expected_code": "SSIS-789", "expected_part_suffix": "", "expected_variant": "-LEAK", "should_review": false, "expected_warning_codes": [], "notes": "leak variant"},
+  {"input": "JUQ-001-uncensored.mp4", "expected_suggested_name": "JUQ-001-UNCENSORED.mp4", "expected_code": "JUQ-001", "expected_part_suffix": "", "expected_variant": "-UNCENSORED", "should_review": false, "expected_warning_codes": [], "notes": "uncensored variant"},
+  {"input": "PRED-321-subbed.mp4", "expected_suggested_name": "PRED-321-SUBBED.mp4", "expected_code": "PRED-321", "expected_part_suffix": "", "expected_variant": "-SUBBED", "should_review": false, "expected_warning_codes": [], "notes": "subbed variant"}
+]

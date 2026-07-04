@@ -1,0 +1,8 @@
+[
+  {"input": "ad.url", "expected_suggested_name": "ad.url", "expected_code": null, "expected_part_suffix": "", "expected_variant": "", "should_review": true, "expected_warning_codes": ["media_code_not_detected"], "expected_action": "quarantine", "notes": "internet shortcut"},
+  {"input": "movie.torrent", "expected_suggested_name": "movie.torrent", "expected_code": null, "expected_part_suffix": "", "expected_variant": "", "should_review": true, "expected_warning_codes": ["media_code_not_detected"], "expected_action": "quarantine", "notes": "torrent file"},
+  {"input": "partial.aria2", "expected_suggested_name": "partial.aria2", "expected_code": null, "expected_part_suffix": "", "expected_variant": "", "should_review": true, "expected_warning_codes": ["media_code_not_detected"], "expected_action": "quarantine", "notes": "aria2 residue"},
+  {"input": "download.parts", "expected_suggested_name": "download.parts", "expected_code": null, "expected_part_suffix": "", "expected_variant": "", "should_review": true, "expected_warning_codes": ["media_code_not_detected"], "expected_action": "quarantine", "notes": "partial residue"},
+  {"input": "task.qkdownloading", "expected_suggested_name": "task.qkdownloading", "expected_code": null, "expected_part_suffix": "", "expected_variant": "", "should_review": true, "expected_warning_codes": ["media_code_not_detected"], "expected_action": "quarantine", "notes": "downloader residue"},
+  {"input": "empty.txt", "expected_suggested_name": "empty.txt", "expected_code": null, "expected_part_suffix": "", "expected_variant": "", "should_review": true, "expected_warning_codes": ["media_code_not_detected"], "expected_action": "quarantine", "notes": "zero byte text"}
+]

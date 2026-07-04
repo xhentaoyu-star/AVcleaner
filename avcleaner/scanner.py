@@ -4,8 +4,11 @@ import hashlib
 from pathlib import Path
 
 from .constants import JUNK_EXTENSIONS, SIDECAR_EXTENSIONS, VIDEO_EXTENSIONS
-from .models import FileItem, ScanRequest, ScanResponse
+from .fingerprint import snapshot_for_path
+from .models import ScanItem, ScanRequest, ScanResponse
 from .paths import normalize_extension
+
+QUARANTINE_DIR_NAME = ".avcleaner_quarantine"
 
 
 def file_id(path: str | Path) -> str:
@@ -26,32 +29,34 @@ def classify_extension(ext: str) -> str:
 def scan_files(request: ScanRequest) -> ScanResponse:
     root = Path(request.root_path).expanduser().resolve(strict=False)
     if not root.exists() or not root.is_dir():
-        raise ValueError("扫描目录不存在")
+        raise ValueError("scan_root_not_found")
 
     allowed_extensions = None
     if request.extensions:
         allowed_extensions = {normalize_extension(ext) for ext in request.extensions if normalize_extension(ext)}
 
     exclude_dirs = {name.lower() for name in (request.exclude_dirs or [])}
-    files: list[FileItem] = []
+    exclude_dirs.add(QUARANTINE_DIR_NAME)
+    files: list[ScanItem] = []
     skipped_dirs: list[str] = []
 
-    def should_skip_dir(path: Path) -> bool:
-        if path == root:
-            return False
-        if path.name.lower() in exclude_dirs:
-            skipped_dirs.append(str(path))
-            return True
-        if not request.include_hidden and path.name.startswith("."):
-            skipped_dirs.append(str(path))
-            return True
+    def is_under_skipped_dir(path: Path) -> bool:
+        for parent in path.parents:
+            if parent == root.parent:
+                break
+            if parent == root:
+                continue
+            parent_name = parent.name.lower()
+            if parent_name in exclude_dirs or (not request.include_hidden and parent.name.startswith(".")):
+                skipped_dirs.append(str(parent))
+                return True
         return False
 
     iterator = root.rglob("*") if request.recursive else root.glob("*")
     for path in sorted(iterator, key=lambda p: str(p).lower()):
         if path.is_dir():
             continue
-        if any(should_skip_dir(parent) for parent in path.parents if parent != root.parent):
+        if is_under_skipped_dir(path):
             continue
         if not request.include_hidden and path.name.startswith("."):
             continue
@@ -60,10 +65,11 @@ def scan_files(request: ScanRequest) -> ScanResponse:
             continue
         try:
             stat = path.stat()
+            snapshot = snapshot_for_path(path)
         except OSError:
             continue
         files.append(
-            FileItem(
+            ScanItem(
                 id=file_id(path),
                 path=str(path),
                 relative_path=str(path.relative_to(root)),
@@ -73,6 +79,7 @@ def scan_files(request: ScanRequest) -> ScanResponse:
                 size=stat.st_size,
                 mtime=stat.st_mtime,
                 kind=classify_extension(ext),
+                snapshot=snapshot,
                 is_hidden=path.name.startswith("."),
             )
         )

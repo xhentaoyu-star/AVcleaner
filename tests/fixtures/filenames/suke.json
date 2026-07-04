@@ -1,0 +1,10 @@
+[
+  {"input": "428SUKE-095.mp4", "expected_suggested_name": "428SUKE-095.mp4", "expected_code": "428SUKE-095", "expected_part_suffix": "", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "standard"},
+  {"input": "428suke095.mp4", "expected_suggested_name": "428SUKE-095.mp4", "expected_code": "428SUKE-095", "expected_part_suffix": "", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "compact lower"},
+  {"input": "428SUKE_096.mp4", "expected_suggested_name": "428SUKE-096.mp4", "expected_code": "428SUKE-096", "expected_part_suffix": "", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "underscore"},
+  {"input": "[ad.com] 428SUKE-097 1080p.mp4", "expected_suggested_name": "428SUKE-097.mp4", "expected_code": "428SUKE-097", "expected_part_suffix": "", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "ad and noise"},
+  {"input": "428SUKE-098_1.mp4", "expected_suggested_name": "428SUKE-098-1.mp4", "expected_code": "428SUKE-098", "expected_part_suffix": "-1", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "part"},
+  {"input": "428SUKE-099-C.mp4", "expected_suggested_name": "428SUKE-099-C.mp4", "expected_code": "428SUKE-099", "expected_part_suffix": "", "expected_variant": "-C", "should_review": false, "expected_warning_codes": [], "notes": "variant"},
+  {"input": "428SUKE100.mp4", "expected_suggested_name": "428SUKE-100.mp4", "expected_code": "428SUKE-100", "expected_part_suffix": "", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "compact"},
+  {"input": "428SUKE-101-UC.mp4", "expected_suggested_name": "428SUKE-101-UC.mp4", "expected_code": "428SUKE-101", "expected_part_suffix": "", "expected_variant": "-UC", "should_review": false, "expected_warning_codes": [], "notes": "uc variant"}
+]

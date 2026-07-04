@@ -1,0 +1,10 @@
+[
+  {"input": "HEYZO-1234.mp4", "expected_suggested_name": "HEYZO-1234.mp4", "expected_code": "HEYZO-1234", "expected_part_suffix": "", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "standard"},
+  {"input": "heyzo_1234.mp4", "expected_suggested_name": "HEYZO-1234.mp4", "expected_code": "HEYZO-1234", "expected_part_suffix": "", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "underscore"},
+  {"input": "HEYZO1234.mp4", "expected_suggested_name": "HEYZO-1234.mp4", "expected_code": "HEYZO-1234", "expected_part_suffix": "", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "compact"},
+  {"input": "[ad.com] HEYZO-2222 1080p.mp4", "expected_suggested_name": "HEYZO-2222.mp4", "expected_code": "HEYZO-2222", "expected_part_suffix": "", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "ad and noise"},
+  {"input": "HEYZO-3333-C.mp4", "expected_suggested_name": "HEYZO-3333-C.mp4", "expected_code": "HEYZO-3333", "expected_part_suffix": "", "expected_variant": "-C", "should_review": false, "expected_warning_codes": [], "notes": "variant"},
+  {"input": "HEYZO-4444_2.mp4", "expected_suggested_name": "HEYZO-4444-2.mp4", "expected_code": "HEYZO-4444", "expected_part_suffix": "-2", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "part suffix"},
+  {"input": "HEYZO-5555-UC.mp4", "expected_suggested_name": "HEYZO-5555-UC.mp4", "expected_code": "HEYZO-5555", "expected_part_suffix": "", "expected_variant": "-UC", "should_review": false, "expected_warning_codes": [], "notes": "uc variant"},
+  {"input": "HEYZO-6666 WEB-DL.mp4", "expected_suggested_name": "HEYZO-6666.mp4", "expected_code": "HEYZO-6666", "expected_part_suffix": "", "expected_variant": "", "should_review": false, "expected_warning_codes": [], "notes": "noise token"}
+]

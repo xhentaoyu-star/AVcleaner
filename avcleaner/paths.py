@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
+
+from .runtime import (
+    ensure_runtime_dirs,
+    runtime_data_dir,
+    runtime_quarantine_fallback_dir,
+)
 
 
 def app_data_dir() -> Path:
-    override = os.environ.get("AVCLEANER_DATA_DIR")
-    if override:
-        root = Path(override)
-    elif os.name == "nt":
-        local_appdata = os.environ.get("LOCALAPPDATA")
-        root = Path(local_appdata) / "AVcleaner" if local_appdata else Path.home() / "AppData" / "Local" / "AVcleaner"
-    else:
-        root = Path.home() / ".local" / "share" / "avcleaner"
+    ensure_runtime_dirs()
+    root = runtime_data_dir()
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -22,7 +21,8 @@ def database_path() -> Path:
 
 
 def quarantine_root() -> Path:
-    root = app_data_dir() / "quarantine"
+    ensure_runtime_dirs()
+    root = runtime_quarantine_fallback_dir()
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -53,4 +53,3 @@ def safe_relative_path(path: str | Path, root: str | Path) -> str:
         return str(Path(path).resolve(strict=False).relative_to(Path(root).resolve(strict=False)))
     except ValueError:
         return Path(path).name
-

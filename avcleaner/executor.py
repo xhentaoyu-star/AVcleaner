@@ -2,141 +2,201 @@ from __future__ import annotations
 
 import shutil
 import uuid
-from collections import Counter
+import os
 from pathlib import Path
 
-from .database import operations_for_run, utc_now_iso, write_run
-from .models import ExecuteRequest, ExecuteResponse, OperationRecord, PlanItem
-from .paths import is_relative_to, quarantine_root, safe_relative_path
-from .rules import validate_plan_items
+from .enums import IssueCode, Operation, PlanState, RunItemState, RunState
+from .errors import AppError
+from .models import ExecuteRequest, ExecuteResponse, ExecutionItem, ExecutionRun, OperationRecord, PlanExecuteRequest
+from .planner import validate_stored_plan
+from .quarantine import quarantine_item
+from .repository import (
+    create_run,
+    get_plan,
+    get_run_items,
+    new_id,
+    summarize_item_states,
+    update_plan_state,
+    update_run_state,
+    upsert_run_item,
+)
+from .validators import has_blocking_issues
 
 
-def _record(
-    run_id: str,
-    action: str,
-    source_path: str,
-    target_path: str,
-    status: str,
-    message: str = "",
-    size: int = 0,
-    mtime: float = 0.0,
-) -> OperationRecord:
+def _operation_record(item: ExecutionItem) -> OperationRecord:
     return OperationRecord(
-        run_id=run_id,
-        timestamp=utc_now_iso(),
-        action=action,
-        source_path=source_path,
-        target_path=target_path,
-        status=status,
-        message=message,
-        size=size,
-        mtime=mtime,
+        run_id=item.run_id,
+        timestamp=item.updated_at,
+        action=str(item.operation),
+        source_path=item.source_path,
+        target_path=item.target_path,
+        status=str(item.state),
+        message=item.message,
+        size=item.snapshot.size if item.snapshot else 0,
+        mtime=0,
     )
 
 
-def execute_plan(request: ExecuteRequest) -> ExecuteResponse:
+def execute_plan_by_id(plan_id: str, request: PlanExecuteRequest) -> ExecuteResponse:
     if not request.confirm:
-        raise ValueError("执行前必须确认")
+        raise AppError("confirm_required", 400)
+    original = get_plan(plan_id)
+    if request.plan_hash != original.plan_hash:
+        raise AppError(IssueCode.PLAN_HASH_MISMATCH, 409)
 
-    root = Path(request.root_path).resolve(strict=False)
-    if not root.exists() or not root.is_dir():
-        raise ValueError("根目录不存在")
+    validated = validate_stored_plan(plan_id)
+    if validated.plan_hash != request.plan_hash:
+        raise AppError(IssueCode.PLAN_HASH_MISMATCH, 409)
 
-    run_id = uuid.uuid4().hex
-    items = [item for item in request.items if item.checked and item.action in {"rename", "quarantine"}]
-    validate_plan_items(root, items)
-    operations: list[OperationRecord] = []
+    known_ids = {item.id for item in validated.items}
+    requested_ids = set(request.selected_item_ids)
+    unknown_ids = requested_ids - known_ids
+    if unknown_ids:
+        raise AppError(IssueCode.UNKNOWN_SELECTED_ITEM_IDS, 400)
+    if not requested_ids:
+        raise AppError(IssueCode.NO_SELECTED_ITEMS, 400)
 
-    for item in items:
-        if item.warnings and any(_is_blocking_warning(warning) for warning in item.warnings):
-            operations.append(
-                _record(run_id, item.action, item.source_path, item.target_path, "Skipped", "blocked by validation", item.size, item.mtime)
-            )
-            continue
+    selected = [item for item in validated.items if item.id in requested_ids]
+    if any(has_blocking_issues(item) for item in selected):
+        raise AppError(IssueCode.BLOCKING_ITEM_SELECTED, 400)
+    run_id = new_id("run")
+    run = create_run(
+        ExecutionRun(
+            run_id=run_id,
+            plan_id=plan_id,
+            plan_hash=validated.plan_hash,
+            state=RunState.RUNNING,
+            summary={},
+        )
+    )
+
+    completed: list[ExecutionItem] = []
+    for item in selected:
+        run_item = ExecutionItem(
+            id=new_id("runitem"),
+            run_id=run_id,
+            plan_item_id=item.id,
+            operation=item.operation or item.action,
+            state=RunItemState.PENDING,
+            source_path=item.source_path,
+            target_path=item.target_path,
+            snapshot=item.snapshot,
+        )
+        run_item = upsert_run_item(run_item)
         try:
-            if item.action == "rename":
-                operations.append(_execute_rename(run_id, root, item))
-            elif item.action == "quarantine":
-                operations.append(_execute_quarantine(run_id, root, item))
+            if item.action == Operation.RENAME:
+                run_item = _execute_rename_item(run_item, item)
+            elif item.action == Operation.QUARANTINE:
+                run_item = _execute_quarantine_item(run_item, Path(validated.root_path), item)
+            else:
+                run_item = upsert_run_item(run_item.model_copy(update={"state": RunItemState.SKIPPED, "message": "not_executable"}))
         except Exception:
-            operations.append(
-                _record(run_id, item.action, item.source_path, item.target_path, "Error", "operation failed", item.size, item.mtime)
-            )
+            run_item = upsert_run_item(run_item.model_copy(update={"state": RunItemState.FAILED, "message": "operation_failed"}))
+        completed.append(run_item)
 
-    write_run(run_id, operations)
-    return ExecuteResponse(run_id=run_id, operations=operations, summary=dict(Counter(f"{op.action}:{op.status}" for op in operations)))
+    summary = summarize_item_states(completed)
+    final_state = _final_run_state(completed)
+    update_run_state(run_id, final_state, summary)
+    if completed:
+        update_plan_state(plan_id, PlanState.EXECUTED)
+    return ExecuteResponse(
+        run_id=run_id,
+        operations=[_operation_record(item) for item in completed],
+        items=completed,
+        summary=summary,
+        state=final_state,
+    )
 
 
-def _is_blocking_warning(warning: str) -> bool:
-    return warning in {"路径越界", "目标文件名重复", "目标文件已存在", "目标路径过长", "包含 Windows 非法字符", "文件名为空", "扩展名被修改", "文件名是 Windows 保留设备名"}
-
-
-def _execute_rename(run_id: str, root: Path, item: PlanItem) -> OperationRecord:
-    source = Path(item.source_path).resolve(strict=False)
-    target = Path(item.target_path).resolve(strict=False)
-    if not is_relative_to(source, root) or not is_relative_to(target, root):
-        return _record(run_id, "rename", str(source), str(target), "Skipped", "path outside root", item.size, item.mtime)
+def _execute_rename_item(run_item: ExecutionItem, item) -> ExecutionItem:
+    source = Path(os.path.abspath(item.source_path))
+    target = Path(os.path.abspath(item.target_path))
     if not source.exists():
-        return _record(run_id, "rename", str(source), str(target), "Skipped", "source missing", item.size, item.mtime)
-    if target.exists() and str(target).lower() != str(source).lower():
-        return _record(run_id, "rename", str(source), str(target), "Skipped", "target exists", item.size, item.mtime)
-
+        return upsert_run_item(run_item.model_copy(update={"state": RunItemState.FAILED, "message": "source_missing", "issue_code": IssueCode.SOURCE_MISSING}))
+    if target.exists() and str(source).lower() != str(target).lower():
+        return upsert_run_item(run_item.model_copy(update={"state": RunItemState.FAILED, "message": "target_exists", "issue_code": IssueCode.TARGET_EXISTS}))
     target.parent.mkdir(parents=True, exist_ok=True)
-    if str(target).lower() == str(source).lower() and str(target) != str(source):
-        temp = source.with_name(f".__avcleaner_tmp_{uuid.uuid4().hex}{source.suffix}")
+    if item.requires_two_step or (str(source).lower() == str(target).lower() and str(source) != str(target)):
+        temp = source.with_name(f".avcleaner_tmp_{uuid.uuid4().hex[:12]}{source.suffix}")
+        if temp.exists():
+            return upsert_run_item(run_item.model_copy(update={"state": RunItemState.FAILED, "message": "temp_target_exists"}))
+        run_item = upsert_run_item(run_item.model_copy(update={"temp_path": str(temp)}))
         source.rename(temp)
         temp.rename(target)
     else:
         source.rename(target)
-    return _record(run_id, "rename", str(source), str(target), "OK", "renamed", item.size, item.mtime)
+    return upsert_run_item(run_item.model_copy(update={"state": RunItemState.RENAMED, "message": "renamed", "target_path": str(target)}))
 
 
-def _execute_quarantine(run_id: str, root: Path, item: PlanItem) -> OperationRecord:
+def _execute_quarantine_item(run_item: ExecutionItem, scan_root: Path, item) -> ExecutionItem:
     source = Path(item.source_path).resolve(strict=False)
-    if not is_relative_to(source, root):
-        return _record(run_id, "quarantine", str(source), "", "Skipped", "path outside root", item.size, item.mtime)
     if not source.exists():
-        return _record(run_id, "quarantine", str(source), "", "Skipped", "source missing", item.size, item.mtime)
-
-    relative = safe_relative_path(source, root)
-    target = quarantine_root() / uuid.uuid4().hex[:8] / relative
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists():
-        target = target.with_name(f"{target.stem}__duplicate_{uuid.uuid4().hex[:8]}{target.suffix}")
-    shutil.move(str(source), str(target))
-    return _record(run_id, "quarantine", str(source), str(target), "OK", "moved to quarantine", item.size, item.mtime)
-
-
-def rollback_run(run_id: str) -> ExecuteResponse:
-    source_operations = [op for op in operations_for_run(run_id) if op.status == "OK"]
-    rollback_id = uuid.uuid4().hex
-    operations: list[OperationRecord] = []
-
-    for op in source_operations:
-        try:
-            if op.action in {"rename", "quarantine"}:
-                operations.append(_rollback_move(rollback_id, op))
-        except Exception:
-            operations.append(
-                _record(rollback_id, f"rollback:{op.action}", op.target_path, op.source_path, "Error", "rollback failed", op.size, op.mtime)
-            )
-
-    write_run(rollback_id, operations)
-    return ExecuteResponse(
-        run_id=rollback_id,
-        operations=operations,
-        summary=dict(Counter(f"{op.action}:{op.status}" for op in operations)),
+        return upsert_run_item(run_item.model_copy(update={"state": RunItemState.FAILED, "message": "source_missing", "issue_code": IssueCode.SOURCE_MISSING}))
+    target, _manifest = quarantine_item(run_item.run_id, scan_root, item)
+    return upsert_run_item(
+        run_item.model_copy(update={"state": RunItemState.QUARANTINED, "message": "quarantined", "target_path": str(target)})
     )
 
 
-def _rollback_move(rollback_id: str, op: OperationRecord) -> OperationRecord:
-    source = Path(op.target_path).resolve(strict=False)
-    target = Path(op.source_path).resolve(strict=False)
-    if not source.exists():
-        return _record(rollback_id, f"rollback:{op.action}", str(source), str(target), "Skipped", "rollback source missing", op.size, op.mtime)
-    if target.exists():
-        return _record(rollback_id, f"rollback:{op.action}", str(source), str(target), "Skipped", "original path exists", op.size, op.mtime)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(source), str(target))
-    return _record(rollback_id, f"rollback:{op.action}", str(source), str(target), "OK", "restored", op.size, op.mtime)
+def _final_run_state(items: list[ExecutionItem]) -> RunState:
+    if not items:
+        return RunState.FAILED
+    successes = {RunItemState.RENAMED, RunItemState.QUARANTINED, RunItemState.SKIPPED}
+    failed = [item for item in items if item.state == RunItemState.FAILED]
+    succeeded = [item for item in items if item.state in successes]
+    if failed and succeeded:
+        return RunState.PARTIAL_SUCCESS
+    if failed:
+        return RunState.FAILED
+    return RunState.SUCCESS
 
+
+def rollback_run(run_id: str) -> ExecuteResponse:
+    source_items = [
+        item
+        for item in get_run_items(run_id, reverse=True)
+        if item.state in {RunItemState.RENAMED, RunItemState.QUARANTINED}
+    ]
+    rollback_id = new_id("run")
+    create_run(ExecutionRun(run_id=rollback_id, state=RunState.ROLLBACK_RUNNING, summary={}, plan_id=run_id))
+    completed: list[ExecutionItem] = []
+    for source_item in source_items:
+        rollback_item = ExecutionItem(
+            id=new_id("runitem"),
+            run_id=rollback_id,
+            plan_item_id=source_item.plan_item_id,
+            operation=source_item.operation,
+            state=RunItemState.PENDING,
+            source_path=source_item.target_path,
+            target_path=source_item.source_path,
+            snapshot=source_item.snapshot,
+        )
+        rollback_item = upsert_run_item(rollback_item)
+        source = Path(source_item.target_path).resolve(strict=False)
+        target = Path(source_item.source_path).resolve(strict=False)
+        if not source.exists():
+            rollback_item = rollback_item.model_copy(update={"state": RunItemState.ROLLBACK_FAILED, "message": "rollback_source_missing"})
+        elif target.exists():
+            rollback_item = rollback_item.model_copy(
+                update={"state": RunItemState.ROLLBACK_FAILED, "message": "restore_target_exists", "issue_code": IssueCode.RESTORE_TARGET_EXISTS}
+            )
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(source), str(target))
+            rollback_item = rollback_item.model_copy(update={"state": RunItemState.ROLLED_BACK, "message": "restored"})
+        completed.append(upsert_run_item(rollback_item))
+
+    summary = summarize_item_states(completed)
+    final_state = RunState.ROLLED_BACK if completed and all(item.state == RunItemState.ROLLED_BACK for item in completed) else RunState.ROLLBACK_PARTIAL
+    update_run_state(rollback_id, final_state, summary)
+    return ExecuteResponse(
+        run_id=rollback_id,
+        operations=[_operation_record(item) for item in completed],
+        items=completed,
+        summary=summary,
+        state=final_state,
+    )
+
+
+def execute_plan(_request: ExecuteRequest) -> ExecuteResponse:
+    raise AppError(IssueCode.LEGACY_EXECUTE_DISABLED, 410)
