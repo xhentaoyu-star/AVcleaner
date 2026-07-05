@@ -5,12 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="avcleaner-token" content="{{ api_token }}" />
     <title>AVcleaner</title>
+    <link rel="icon" type="image/png" href="/static/logo-icon.png" />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
     <header class="topbar">
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true">A</div>
+        <div class="brand-mark" aria-hidden="true">
+          <img src="/static/logo-icon.png" alt="" />
+        </div>
         <div>
           <h1>AVcleaner</h1>
           <span class="version">v{{ version }}</span>
@@ -43,6 +46,20 @@
       </section>
 
       <section data-panel="workspace" class="panel active">
+        <section class="safety-banner" aria-label="安全预览提示">
+          <div class="safety-banner-icon" aria-hidden="true">
+            <svg class="icon"><use href="/static/icons.svg#icon-safe-select"></use></svg>
+          </div>
+          <div class="safety-banner-copy">
+            <strong>安全预览模式 · 预览仅在本机执行，不会改动任何文件</strong>
+            <p>AI 智能预览只分析文件名、标签与路径线索；真正执行前仍需要确认，且由后端计划和 plan_hash 校验。</p>
+          </div>
+          <div class="safety-banner-status">
+            <span>本地模式</span>
+            <span>数据只在本机保存</span>
+          </div>
+        </section>
+
         <section class="step-section workflow-section workflow-card">
           <div class="section-heading">
             <span>本地工作流</span>
