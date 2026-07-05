@@ -19,7 +19,7 @@ def test_diagnostics_redacts_paths_and_secrets(client, auth_headers: dict[str, s
     assert "authorization" not in text
     assert "bearer" not in text
     assert "x-avcleaner-token" not in text
-    assert body["app"]["version"] == "0.6.1"
+    assert body["app"]["version"] == "0.7.2"
     assert body["runtime"]["mode"] in {"dev", "portable", "appdata"}
     assert body["runtime"]["data_dir"].startswith("<")
     assert body["health"]["ok"] in {True, False}

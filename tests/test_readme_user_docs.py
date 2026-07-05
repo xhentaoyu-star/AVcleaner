@@ -6,11 +6,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_readme_mentions_v061_rc_workflow_and_safety_boundaries() -> None:
+def test_readme_mentions_v070_workflow_and_safety_boundaries() -> None:
     text = (ROOT / "README.md").read_text(encoding="utf-8")
 
-    assert "Current version: `0.6.1`" in text
-    assert "Release candidate GUI workflow" in text
+    assert "Current version: `0.7.2`" in text
+    assert "Local daily workflow" in text
     assert "隔离不是永久删除" in text
     assert "阻止" in text
     assert "警告" in text
@@ -20,6 +20,8 @@ def test_readme_mentions_v061_rc_workflow_and_safety_boundaries() -> None:
     assert "OpenAver" in text
     assert "Compatibility mode does not bypass validation" in text
     assert "SHA256" in text
+    assert "rollback preview" in text
+    assert "recent folders" in text.lower()
 
 
 def test_quickstart_exists_for_nontechnical_beta_flow() -> None:

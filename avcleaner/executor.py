@@ -10,12 +10,14 @@ from .errors import AppError
 from .models import ExecuteRequest, ExecuteResponse, ExecutionItem, ExecutionRun, OperationRecord, PlanExecuteRequest
 from .planner import validate_stored_plan
 from .quarantine import quarantine_item
+from .recovery import ROLLBACK_TARGET_EXISTS, build_rollback_preview
 from .repository import (
     create_run,
     get_plan,
     get_run_items,
     new_id,
     summarize_item_states,
+    update_run_item_rollback_status,
     update_plan_state,
     update_run_state,
     upsert_run_item,
@@ -151,16 +153,16 @@ def _final_run_state(items: list[ExecutionItem]) -> RunState:
     return RunState.SUCCESS
 
 
-def rollback_run(run_id: str) -> ExecuteResponse:
-    source_items = [
-        item
-        for item in get_run_items(run_id, reverse=True)
-        if item.state in {RunItemState.RENAMED, RunItemState.QUARANTINED}
-    ]
+def rollback_run(run_id: str, item_ids: list[str] | None = None) -> ExecuteResponse:
+    preview = build_rollback_preview(run_id, item_ids)
+    source_items_by_id = {item.id: item for item in get_run_items(run_id, reverse=True)}
+    source_items = [source_items_by_id[item["item_id"]] for item in preview["items"]]
+    preview_by_id = {item["item_id"]: item for item in preview["items"]}
     rollback_id = new_id("run")
     create_run(ExecutionRun(run_id=rollback_id, state=RunState.ROLLBACK_RUNNING, summary={}, plan_id=run_id))
     completed: list[ExecutionItem] = []
     for source_item in source_items:
+        preview_item = preview_by_id[source_item.id]
         rollback_item = ExecutionItem(
             id=new_id("runitem"),
             run_id=rollback_id,
@@ -172,23 +174,44 @@ def rollback_run(run_id: str) -> ExecuteResponse:
             snapshot=source_item.snapshot,
         )
         rollback_item = upsert_run_item(rollback_item)
-        source = Path(source_item.target_path).resolve(strict=False)
-        target = Path(source_item.source_path).resolve(strict=False)
-        if not source.exists():
-            rollback_item = rollback_item.model_copy(update={"state": RunItemState.ROLLBACK_FAILED, "message": "rollback_source_missing"})
-        elif target.exists():
+        if preview_item["blocking"]:
+            error_code = preview_item["issue_codes"][0] if preview_item["issue_codes"] else "rollback_blocked"
+            legacy_issue_code = str(IssueCode.RESTORE_TARGET_EXISTS) if error_code == ROLLBACK_TARGET_EXISTS else error_code
             rollback_item = rollback_item.model_copy(
-                update={"state": RunItemState.ROLLBACK_FAILED, "message": "restore_target_exists", "issue_code": IssueCode.RESTORE_TARGET_EXISTS}
+                update={
+                    "state": RunItemState.ROLLBACK_FAILED,
+                    "message": error_code,
+                    "issue_code": legacy_issue_code,
+                    "rollback_status": str(RunItemState.ROLLBACK_FAILED),
+                    "rollback_error_code": error_code,
+                }
             )
+            update_run_item_rollback_status(source_item.id, str(RunItemState.ROLLBACK_FAILED), error_code)
         else:
+            source = Path(source_item.target_path).resolve(strict=False)
+            target = Path(source_item.source_path).resolve(strict=False)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(source), str(target))
-            rollback_item = rollback_item.model_copy(update={"state": RunItemState.ROLLED_BACK, "message": "restored"})
+            rollback_item = rollback_item.model_copy(
+                update={
+                    "state": RunItemState.ROLLED_BACK,
+                    "message": "restored",
+                    "rollback_status": str(RunItemState.ROLLED_BACK),
+                    "rollback_error_code": "",
+                }
+            )
+            update_run_item_rollback_status(source_item.id, str(RunItemState.ROLLED_BACK), "")
         completed.append(upsert_run_item(rollback_item))
 
     summary = summarize_item_states(completed)
     final_state = RunState.ROLLED_BACK if completed and all(item.state == RunItemState.ROLLED_BACK for item in completed) else RunState.ROLLBACK_PARTIAL
     update_run_state(rollback_id, final_state, summary)
+    remaining = get_run_items(run_id)
+    if remaining and all(
+        item.state not in {RunItemState.RENAMED, RunItemState.QUARANTINED} or item.rollback_status == str(RunItemState.ROLLED_BACK)
+        for item in remaining
+    ):
+        update_run_state(run_id, RunState.ROLLED_BACK)
     return ExecuteResponse(
         run_id=rollback_id,
         operations=[_operation_record(item) for item in completed],

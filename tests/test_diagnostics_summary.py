@@ -6,7 +6,7 @@ def test_diagnostics_summary_reports_human_fields_and_disabled_legacy_endpoints(
 
     assert response.status_code == 200
     summary = response.json()["summary"]
-    assert summary["version"] == "0.6.1"
+    assert summary["version"] == "0.7.2"
     assert summary["runtime_mode"] in {"dev", "portable", "appdata"}
     assert summary["data_dir_writable"] in {True, False}
     assert summary["database_ok"] in {True, False}

@@ -73,6 +73,9 @@ def canonical_plan_items(items: list[PlanItem]) -> list[dict]:
             "last_edited_at": item.last_edited_at,
             "llm_accepted": item.llm_accepted,
             "llm_suggestion_id": item.llm_suggestion_id,
+            "llm_state": item.llm_state,
+            "llm_error_code": item.llm_error_code,
+            "llm_suggested_name": item.llm_suggested_name,
             "ruleset_hash": item.ruleset_hash,
         }
         for item in sorted(items, key=lambda row: row.id)
@@ -88,7 +91,7 @@ def compute_plan_hash(items: list[PlanItem]) -> str:
 
 
 def _issue_codes(item: PlanItem) -> list[str]:
-    return [str(issue.code) for issue in item.issues]
+    return list(dict.fromkeys(str(issue.code) for issue in item.issues))
 
 
 def _review_reason_codes(item: PlanItem) -> list[str]:
@@ -349,6 +352,7 @@ def create_plan(request: PlanRequest) -> PlanRecord:
         plan_hash=plan_hash,
         summary=summarize_plan(items),
         items=items,
+        preview_mode=request.preview_mode,
     )
     if scan.scan_id:
         return save_plan(record, request.rules.model_dump(mode="json"))
@@ -365,6 +369,13 @@ def response_from_record(record: PlanRecord) -> PlanResponse:
         items=items,
         summary=summarize_plan(items),
         state=record.state,
+        preview_mode=record.preview_mode,
+        llm_used=record.llm_used,
+        llm_mode=record.llm_mode,
+        llm_applied_count=record.llm_applied_count,
+        llm_invalid_count=record.llm_invalid_count,
+        llm_fallback_to_rule_count=record.llm_fallback_to_rule_count,
+        messages=record.messages,
     )
 
 

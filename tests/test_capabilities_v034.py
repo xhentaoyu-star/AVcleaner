@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 
-def test_capabilities_exposes_v061_release_features(client) -> None:
+def test_capabilities_exposes_v070_release_features(client) -> None:
     response = client.get("/api/capabilities")
 
     assert response.status_code == 200
     body = response.json()
-    assert body["version"] == "0.6.1"
+    assert body["version"] == "0.7.2"
     assert body["capabilities"]["manual_review"] is True
     assert body["capabilities"]["persisted_selection"] is True
     assert body["capabilities"]["plan_export"] is True
@@ -34,3 +34,13 @@ def test_capabilities_exposes_v061_release_features(client) -> None:
     assert body["capabilities"]["diagnostics_panel"] is True
     assert body["capabilities"]["first_run_helper"] is True
     assert body["capabilities"]["ui_error_explanations"] is True
+    assert body["capabilities"]["run_detail"] is True
+    assert body["capabilities"]["rollback_preview"] is True
+    assert body["capabilities"]["run_export"] is True
+    assert body["capabilities"]["recent_folders"] is True
+    assert body["capabilities"]["execution_report"] is True
+    assert body["capabilities"]["ui_polish_072"] is True
+    assert body["capabilities"]["icon_system"] is True
+    assert body["capabilities"]["toast_feedback"] is True
+    assert body["capabilities"]["detail_drawer"] is True
+    assert body["capabilities"]["responsive_table"] is True

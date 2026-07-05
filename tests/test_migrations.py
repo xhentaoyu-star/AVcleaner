@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from avcleaner.database import connect, init_db
+from avcleaner.database import SCHEMA_VERSION, connect, init_db
 
 
 def test_schema_migrations_table_exists() -> None:
     with connect() as conn:
-        row = conn.execute("SELECT version FROM schema_migrations WHERE version = 3").fetchone()
-    assert row["version"] == 3
+        row = conn.execute("SELECT version FROM schema_migrations WHERE version = ?", (SCHEMA_VERSION,)).fetchone()
+    assert row["version"] == SCHEMA_VERSION
 
 
 def test_core_tables_exist() -> None:
@@ -30,7 +30,7 @@ def test_migrations_are_idempotent() -> None:
     with connect() as conn:
         init_db(conn)
         init_db(conn)
-        rows = conn.execute("SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 3").fetchone()
+        rows = conn.execute("SELECT COUNT(*) AS count FROM schema_migrations WHERE version = ?", (SCHEMA_VERSION,)).fetchone()
     assert rows["count"] == 1
 
 

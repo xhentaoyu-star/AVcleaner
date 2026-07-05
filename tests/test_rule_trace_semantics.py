@@ -51,3 +51,5 @@ def test_trace_is_not_single_generic_step_for_renames() -> None:
     assert suggestion.suggested_name == "ABP-123-C.mp4"
     assert len(suggestion.trace) >= 4
     assert {step.rule_id for step in suggestion.trace} != {"render_template"}
+    assert "detect_segment_suffix" in [step.rule_id for step in suggestion.trace]
+    assert "preserve_segment_suffix" in [step.rule_id for step in suggestion.trace]

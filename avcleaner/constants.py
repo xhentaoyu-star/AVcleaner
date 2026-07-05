@@ -14,6 +14,8 @@ RULE_TRACE_IDS = {
     "detect_media_code",
     "normalize_media_code",
     "detect_part_suffix",
+    "detect_segment_suffix",
+    "preserve_segment_suffix",
     "detect_variant",
     "detect_sidecar_language",
     "preserve_sidecar_language",

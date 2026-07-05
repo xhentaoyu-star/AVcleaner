@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import uuid
 from collections import Counter
+from pathlib import Path
 from typing import Iterable
 
 from .database import connect, dumps, loads, utc_now_iso
@@ -19,6 +21,18 @@ from .models import (
     ScanResponse,
     ValidationIssue,
 )
+
+RECENT_FOLDERS_LIMIT = 10
+TERMINAL_RUN_STATES = {
+    RunState.PARTIAL_SUCCESS,
+    RunState.SUCCESS,
+    RunState.FAILED,
+    RunState.ROLLED_BACK,
+    RunState.ROLLBACK_PARTIAL,
+    RunState.INTERRUPTED,
+    RunState.CANCELLED,
+    RunState.ABANDONED,
+}
 
 
 def new_id(prefix: str) -> str:
@@ -81,14 +95,25 @@ def save_plan(record: PlanRecord, rules_json: dict | None = None) -> PlanRecord:
         conn.execute("DELETE FROM plan_items WHERE plan_id = ?", (updated.plan_id,))
         conn.execute(
             """
-            INSERT INTO plans(plan_id, scan_id, root_path, state, plan_hash, summary_json, rules_json, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO plans(
+                plan_id, scan_id, root_path, state, plan_hash, summary_json, rules_json,
+                created_at, updated_at, preview_mode, llm_used, llm_mode, llm_applied_count,
+                llm_invalid_count, llm_fallback_to_rule_count, messages_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(plan_id) DO UPDATE SET
                 state = excluded.state,
                 plan_hash = excluded.plan_hash,
                 summary_json = excluded.summary_json,
                 rules_json = excluded.rules_json,
-                updated_at = excluded.updated_at
+                updated_at = excluded.updated_at,
+                preview_mode = excluded.preview_mode,
+                llm_used = excluded.llm_used,
+                llm_mode = excluded.llm_mode,
+                llm_applied_count = excluded.llm_applied_count,
+                llm_invalid_count = excluded.llm_invalid_count,
+                llm_fallback_to_rule_count = excluded.llm_fallback_to_rule_count,
+                messages_json = excluded.messages_json
             """,
             (
                 updated.plan_id,
@@ -100,6 +125,13 @@ def save_plan(record: PlanRecord, rules_json: dict | None = None) -> PlanRecord:
                 dumps(rules_json or {}),
                 created_at,
                 now,
+                updated.preview_mode,
+                int(updated.llm_used),
+                updated.llm_mode,
+                updated.llm_applied_count,
+                updated.llm_invalid_count,
+                updated.llm_fallback_to_rule_count,
+                dumps(updated.messages),
             ),
         )
         conn.executemany(
@@ -177,6 +209,13 @@ def get_plan(plan_id: str) -> PlanRecord:
         items=items,
         created_at=plan["created_at"],
         updated_at=plan["updated_at"],
+        preview_mode=plan["preview_mode"] if "preview_mode" in plan.keys() else "rule",
+        llm_used=bool(plan["llm_used"]) if "llm_used" in plan.keys() else False,
+        llm_mode=plan["llm_mode"] if "llm_mode" in plan.keys() else "",
+        llm_applied_count=plan["llm_applied_count"] if "llm_applied_count" in plan.keys() else 0,
+        llm_invalid_count=plan["llm_invalid_count"] if "llm_invalid_count" in plan.keys() else 0,
+        llm_fallback_to_rule_count=plan["llm_fallback_to_rule_count"] if "llm_fallback_to_rule_count" in plan.keys() else 0,
+        messages=loads(plan["messages_json"]) if "messages_json" in plan.keys() and plan["messages_json"] else [],
     )
 
 
@@ -198,8 +237,11 @@ def create_run(run: ExecutionRun) -> ExecutionRun:
     with connect() as conn:
         conn.execute(
             """
-            INSERT INTO runs(run_id, plan_id, plan_hash, timestamp, status, state, summary, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO runs(
+                run_id, plan_id, plan_hash, timestamp, status, state, summary,
+                created_at, updated_at, completed_at, rollback_available
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 updated.run_id,
@@ -211,10 +253,16 @@ def create_run(run: ExecutionRun) -> ExecutionRun:
                 dumps(updated.summary),
                 updated.created_at,
                 updated.updated_at,
+                updated.completed_at,
+                int(updated.rollback_available),
             ),
         )
         conn.commit()
     return updated
+
+
+def _run_has_rollbackable_summary(summary: dict[str, int]) -> bool:
+    return bool(summary.get(str(RunItemState.RENAMED)) or summary.get(str(RunItemState.QUARANTINED)))
 
 
 def update_run_state(run_id: str, state: RunState, summary: dict[str, int] | None = None) -> None:
@@ -222,11 +270,22 @@ def update_run_state(run_id: str, state: RunState, summary: dict[str, int] | Non
         if summary is None:
             row = conn.execute("SELECT summary FROM runs WHERE run_id = ?", (run_id,)).fetchone()
             summary_json = row["summary"] if row else "{}"
+            summary_payload = loads(summary_json)
         else:
             summary_json = dumps(summary)
+            summary_payload = summary
+        now = utc_now_iso()
+        completed_at = now if state in TERMINAL_RUN_STATES else ""
+        rollback_available = int(state in {RunState.SUCCESS, RunState.PARTIAL_SUCCESS} and _run_has_rollbackable_summary(summary_payload))
         conn.execute(
-            "UPDATE runs SET state = ?, status = ?, summary = ?, updated_at = ? WHERE run_id = ?",
-            (state, state, summary_json, utc_now_iso(), run_id),
+            """
+            UPDATE runs
+            SET state = ?, status = ?, summary = ?, updated_at = ?,
+                completed_at = CASE WHEN ? != '' THEN ? ELSE completed_at END,
+                rollback_available = ?
+            WHERE run_id = ?
+            """,
+            (state, state, summary_json, now, completed_at, completed_at, rollback_available, run_id),
         )
         conn.commit()
 
@@ -239,8 +298,9 @@ def upsert_run_item(item: ExecutionItem) -> ExecutionItem:
             """
             INSERT INTO run_items(
                 id, run_id, plan_item_id, operation, state, source_path, target_path, temp_path,
-                message, issue_code, snapshot_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                message, issue_code, snapshot_json, created_at, updated_at, rollback_status,
+                rollback_error_code
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 state = excluded.state,
                 target_path = excluded.target_path,
@@ -248,6 +308,8 @@ def upsert_run_item(item: ExecutionItem) -> ExecutionItem:
                 message = excluded.message,
                 issue_code = excluded.issue_code,
                 snapshot_json = excluded.snapshot_json,
+                rollback_status = excluded.rollback_status,
+                rollback_error_code = excluded.rollback_error_code,
                 updated_at = excluded.updated_at
             """,
             (
@@ -264,6 +326,8 @@ def upsert_run_item(item: ExecutionItem) -> ExecutionItem:
                 dumps(updated.snapshot.model_dump(mode="json") if updated.snapshot else {}),
                 updated.created_at,
                 updated.updated_at,
+                updated.rollback_status,
+                updated.rollback_error_code,
             ),
         )
         conn.commit()
@@ -289,6 +353,8 @@ def get_run_items(run_id: str, reverse: bool = False) -> list[ExecutionItem]:
             snapshot=loads(row["snapshot_json"]) if row["snapshot_json"] and row["snapshot_json"] != "{}" else None,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            rollback_status=row["rollback_status"] if "rollback_status" in row.keys() else "",
+            rollback_error_code=row["rollback_error_code"] if "rollback_error_code" in row.keys() else "",
         )
         for row in rows
     ]
@@ -307,13 +373,20 @@ def get_run(run_id: str) -> ExecutionRun:
         summary=loads(row["summary"]),
         created_at=row["created_at"] or row["timestamp"],
         updated_at=row["updated_at"] or row["timestamp"],
+        completed_at=row["completed_at"] if "completed_at" in row.keys() else "",
+        rollback_available=bool(row["rollback_available"]) if "rollback_available" in row.keys() else False,
     )
 
 
 def list_runs(limit: int = 50) -> list[RunSummary]:
     with connect() as conn:
         rows = conn.execute(
-            "SELECT run_id, timestamp, status, state, summary FROM runs ORDER BY timestamp DESC LIMIT ?",
+            """
+            SELECT run_id, timestamp, status, state, summary, completed_at, rollback_available
+            FROM runs
+            ORDER BY timestamp DESC
+            LIMIT ?
+            """,
             (limit,),
         ).fetchall()
     return [
@@ -323,9 +396,140 @@ def list_runs(limit: int = 50) -> list[RunSummary]:
             status=row["status"],
             state=row["state"],
             summary=loads(row["summary"]),
+            completed_at=row["completed_at"] if "completed_at" in row.keys() else "",
+            rollback_available=bool(row["rollback_available"]) if "rollback_available" in row.keys() else False,
         )
         for row in rows
     ]
+
+
+def update_run_item_rollback_status(item_id: str, status: str, error_code: str = "") -> None:
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE run_items
+            SET rollback_status = ?, rollback_error_code = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (status, error_code, utc_now_iso(), item_id),
+        )
+        conn.commit()
+
+
+def _recent_folder_key(path: str) -> str:
+    return os.path.normcase(os.path.abspath(path)).lower()
+
+
+def upsert_recent_folder(
+    path: str,
+    *,
+    last_scan_id: str = "",
+    last_plan_id: str = "",
+    item_count: int = 0,
+    mode: str = "dev",
+    limit: int = RECENT_FOLDERS_LIMIT,
+) -> dict:
+    clean_path = os.path.abspath(path)
+    key = _recent_folder_key(clean_path)
+    display_name = Path(clean_path).name or clean_path
+    now = utc_now_iso()
+    with connect() as conn:
+        existing = conn.execute("SELECT * FROM recent_folders WHERE path_key = ?", (key,)).fetchone()
+        next_scan_id = last_scan_id or (existing["last_scan_id"] if existing else "")
+        next_plan_id = last_plan_id or (existing["last_plan_id"] if existing else "")
+        next_item_count = item_count if item_count else (existing["item_count"] if existing else 0)
+        next_mode = mode or (existing["mode"] if existing else "dev")
+        conn.execute(
+            """
+            INSERT INTO recent_folders(
+                path_key, path, display_name, last_used_at, last_scan_id, last_plan_id, item_count, mode
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(path_key) DO UPDATE SET
+                path = excluded.path,
+                display_name = excluded.display_name,
+                last_used_at = excluded.last_used_at,
+                last_scan_id = excluded.last_scan_id,
+                last_plan_id = excluded.last_plan_id,
+                item_count = excluded.item_count,
+                mode = excluded.mode
+            """,
+            (key, clean_path, display_name, now, next_scan_id, next_plan_id, next_item_count, next_mode),
+        )
+        conn.execute(
+            """
+            DELETE FROM recent_folders
+            WHERE path_key NOT IN (
+                SELECT path_key FROM recent_folders ORDER BY last_used_at DESC LIMIT ?
+            )
+            """,
+            (limit,),
+        )
+        conn.commit()
+    return {
+        "path": clean_path,
+        "display_name": display_name,
+        "last_used_at": now,
+        "last_scan_id": next_scan_id,
+        "last_plan_id": next_plan_id,
+        "item_count": next_item_count,
+        "mode": next_mode,
+    }
+
+
+def list_recent_folders(limit: int = RECENT_FOLDERS_LIMIT) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT path, display_name, last_used_at, last_scan_id, last_plan_id, item_count, mode
+            FROM recent_folders
+            ORDER BY last_used_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [
+        {
+            "path": row["path"],
+            "display_name": row["display_name"],
+            "last_used_at": row["last_used_at"],
+            "last_scan_id": row["last_scan_id"],
+            "last_plan_id": row["last_plan_id"],
+            "item_count": row["item_count"],
+            "mode": row["mode"],
+        }
+        for row in rows
+    ]
+
+
+def clear_recent_folders() -> int:
+    with connect() as conn:
+        cursor = conn.execute("DELETE FROM recent_folders")
+        conn.commit()
+        return cursor.rowcount
+
+
+def get_local_ui_state(key: str) -> str:
+    with connect() as conn:
+        row = conn.execute("SELECT value FROM local_ui_state WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else ""
+
+
+def set_local_ui_state(key: str, value: str) -> dict:
+    now = utc_now_iso()
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO local_ui_state(key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+            """,
+            (key, value, now),
+        )
+        conn.commit()
+    return {"key": key, "value": value, "updated_at": now}
 
 
 def mark_interrupted_runs() -> int:

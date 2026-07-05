@@ -220,7 +220,7 @@ def parse_tail(text: str, match_end: int) -> tuple[str, str]:
         raw = variant_match.group(1)
         variant = "-" + re.sub(r"[\s_]+", "-", raw.upper())
 
-    compact_variant = re.match(r"(?i)^([A-Z])(?=$|[\s._-])", tail)
+    compact_variant = re.match(r"(?i)^[\s._-]*([A-Z])(?=$|[\s._-])", tail)
     if not variant and compact_variant:
         variant = "-" + compact_variant.group(1).upper()
 
@@ -295,6 +295,10 @@ def _stem_for(filename: str, extension: str) -> str:
 
 def _rule_enabled(settings: RuleConfig, rule_id: str) -> bool:
     return settings.enabled_rules.get(rule_id, True)
+
+
+def _is_segment_suffix(value: str) -> bool:
+    return bool(re.fullmatch(r"-[A-Z]", value or ""))
 
 
 def _render_template(
@@ -398,14 +402,19 @@ def suggest_name_with_trace(filename: str, settings: RuleConfig | None = None) -
     if chosen.raw != render_code and _rule_enabled(settings, "normalize_media_code"):
         trace.append(_step("normalize_media_code", chosen.raw, render_code, preserved_tokens=[render_code]))
     part_suffix = chosen.part_suffix if settings.preserve_part_suffix and settings.keep_part_suffix else ""
-    variant = chosen.variant if settings.preserve_variant else ""
+    segment_suffix = chosen.variant if _is_segment_suffix(chosen.variant) and settings.preserve_part_suffix and settings.keep_part_suffix else ""
+    variant = "" if segment_suffix else (chosen.variant if settings.preserve_variant else "")
     if part_suffix and _rule_enabled(settings, "detect_part_suffix"):
         trace.append(_step("detect_part_suffix", current[chosen.match_end :].strip(), part_suffix, preserved_tokens=[part_suffix]))
+    if segment_suffix and _rule_enabled(settings, "detect_segment_suffix"):
+        trace.append(_step("detect_segment_suffix", current[chosen.match_end :].strip(), segment_suffix, preserved_tokens=[segment_suffix]))
+    if segment_suffix and _rule_enabled(settings, "preserve_segment_suffix"):
+        trace.append(_step("preserve_segment_suffix", render_code, f"{render_code}{segment_suffix}", preserved_tokens=[segment_suffix]))
     if variant and _rule_enabled(settings, "detect_variant"):
         trace.append(_step("detect_variant", current[chosen.match_end :].strip(), variant, preserved_tokens=[variant]))
     language_part = f".{language_suffix}" if language_suffix else ""
     if language_suffix and settings.preserve_sidecar_language and _rule_enabled(settings, "preserve_sidecar_language"):
-        before_language = f"{render_code}{part_suffix}{variant}"
+        before_language = f"{render_code}{part_suffix}{segment_suffix}{variant}"
         trace.append(
             _step(
                 "preserve_sidecar_language",
@@ -418,7 +427,7 @@ def suggest_name_with_trace(filename: str, settings: RuleConfig | None = None) -
     if ext_part and _rule_enabled(settings, "preserve_extension"):
         trace.append(_step("preserve_extension", original_name, preserved_extension, preserved_tokens=[preserved_extension]))
 
-    rendered = _render_template(settings, code=render_code, part=part_suffix, variant=variant, language=language_part, ext=ext_part)
+    rendered = _render_template(settings, code=render_code, part=part_suffix, variant=f"{segment_suffix}{variant}", language=language_part, ext=ext_part)
     safe_name, safe_warnings = _safe_windows_name(rendered)
     warnings.extend(safe_warnings)
     warnings = _bounded_suggestion_warnings(warnings)
@@ -430,7 +439,7 @@ def suggest_name_with_trace(filename: str, settings: RuleConfig | None = None) -
             "render_template",
             original_name,
             suggested_name,
-            preserved_tokens=[render_code, part_suffix, variant, language_part, ext_part],
+            preserved_tokens=[render_code, part_suffix, segment_suffix, variant, language_part, ext_part],
             warnings=warnings,
         )
     )
@@ -441,7 +450,7 @@ def suggest_name_with_trace(filename: str, settings: RuleConfig | None = None) -
         suggested_name=suggested_name,
         media_code=render_code,
         part_suffix=part_suffix,
-        variant=variant,
+        variant=f"{segment_suffix}{variant}",
         language_suffix=language_suffix,
         sidecar_type=sidecar_type if sidecar_type in {"subtitle", "image", "nfo"} else None,
         confidence=chosen.confidence,

@@ -16,6 +16,7 @@ GOLDEN_FILES = [
     "ad_prefix_suffix.json",
     "bracket_ads.json",
     "part_suffixes.json",
+    "segment_suffixes.json",
     "variants.json",
     "subtitle_language_suffixes.json",
 ]

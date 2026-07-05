@@ -8,7 +8,7 @@ from typing import Any
 
 from .paths import database_path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 
 
 def utc_now_iso() -> str:
@@ -78,7 +78,14 @@ def init_db(conn: sqlite3.Connection) -> None:
             summary_json TEXT NOT NULL,
             rules_json TEXT NOT NULL,
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            preview_mode TEXT NOT NULL DEFAULT 'rule',
+            llm_used INTEGER NOT NULL DEFAULT 0,
+            llm_mode TEXT NOT NULL DEFAULT '',
+            llm_applied_count INTEGER NOT NULL DEFAULT 0,
+            llm_invalid_count INTEGER NOT NULL DEFAULT 0,
+            llm_fallback_to_rule_count INTEGER NOT NULL DEFAULT 0,
+            messages_json TEXT NOT NULL DEFAULT '[]'
         );
 
         CREATE TABLE IF NOT EXISTS plan_items (
@@ -125,7 +132,9 @@ def init_db(conn: sqlite3.Connection) -> None:
             state TEXT NOT NULL DEFAULT 'created',
             summary TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT '',
-            updated_at TEXT NOT NULL DEFAULT ''
+            updated_at TEXT NOT NULL DEFAULT '',
+            completed_at TEXT NOT NULL DEFAULT '',
+            rollback_available INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS run_items (
@@ -142,6 +151,8 @@ def init_db(conn: sqlite3.Connection) -> None:
             snapshot_json TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
+            rollback_status TEXT NOT NULL DEFAULT '',
+            rollback_error_code TEXT NOT NULL DEFAULT '',
             FOREIGN KEY(run_id) REFERENCES runs(run_id)
         );
 
@@ -190,6 +201,23 @@ def init_db(conn: sqlite3.Connection) -> None:
             rejected_at TEXT NOT NULL DEFAULT '',
             FOREIGN KEY(plan_id) REFERENCES plans(plan_id)
         );
+
+        CREATE TABLE IF NOT EXISTS recent_folders (
+            path_key TEXT PRIMARY KEY,
+            path TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            last_used_at TEXT NOT NULL,
+            last_scan_id TEXT NOT NULL DEFAULT '',
+            last_plan_id TEXT NOT NULL DEFAULT '',
+            item_count INTEGER NOT NULL DEFAULT 0,
+            mode TEXT NOT NULL DEFAULT 'dev'
+        );
+
+        CREATE TABLE IF NOT EXISTS local_ui_state (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         """
     )
 
@@ -201,13 +229,32 @@ def init_db(conn: sqlite3.Connection) -> None:
     _add_column(conn, "llm_suggestions", "rejected_at", "TEXT NOT NULL DEFAULT ''")
 
     for column, ddl in {
+        "preview_mode": "TEXT NOT NULL DEFAULT 'rule'",
+        "llm_used": "INTEGER NOT NULL DEFAULT 0",
+        "llm_mode": "TEXT NOT NULL DEFAULT ''",
+        "llm_applied_count": "INTEGER NOT NULL DEFAULT 0",
+        "llm_invalid_count": "INTEGER NOT NULL DEFAULT 0",
+        "llm_fallback_to_rule_count": "INTEGER NOT NULL DEFAULT 0",
+        "messages_json": "TEXT NOT NULL DEFAULT '[]'",
+    }.items():
+        _add_column(conn, "plans", column, ddl)
+
+    for column, ddl in {
         "plan_id": "TEXT",
         "plan_hash": "TEXT",
         "state": "TEXT NOT NULL DEFAULT 'created'",
         "created_at": "TEXT NOT NULL DEFAULT ''",
         "updated_at": "TEXT NOT NULL DEFAULT ''",
+        "completed_at": "TEXT NOT NULL DEFAULT ''",
+        "rollback_available": "INTEGER NOT NULL DEFAULT 0",
     }.items():
         _add_column(conn, "runs", column, ddl)
+
+    for column, ddl in {
+        "rollback_status": "TEXT NOT NULL DEFAULT ''",
+        "rollback_error_code": "TEXT NOT NULL DEFAULT ''",
+    }.items():
+        _add_column(conn, "run_items", column, ddl)
 
     conn.execute(
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",

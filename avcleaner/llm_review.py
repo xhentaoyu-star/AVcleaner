@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from typing import Iterable
 
 from . import llm
 from .database import dumps, utc_now_iso
@@ -44,6 +45,28 @@ from .validators import validate_filename, validate_plan_items
 
 SCHEMA_VERSION = 1
 PROMPT_VERSION = "plan-review-v1"
+
+SCHEMA_ERROR_CODES = {
+    str(IssueCode.LLM_SCHEMA_INVALID),
+    str(IssueCode.LLM_INVALID_JSON),
+    str(IssueCode.LLM_NO_JSON_OBJECT),
+    str(IssueCode.LLM_MULTIPLE_JSON_OBJECTS),
+    str(IssueCode.LLM_MISSING_REQUIRED_FIELD),
+    str(IssueCode.LLM_EXTRA_FIELD),
+    str(IssueCode.LLM_WRONG_FIELD_TYPE),
+    str(IssueCode.LLM_CONFIDENCE_OUT_OF_RANGE),
+}
+
+SAFETY_ERROR_CODES = {
+    str(IssueCode.LLM_SUGGESTION_INVALID),
+    str(IssueCode.LLM_PATH_LIKE_SUGGESTION),
+    str(IssueCode.LLM_EXTENSION_CHANGED),
+    str(IssueCode.LLM_RESERVED_NAME),
+    str(IssueCode.LLM_INVALID_WINDOWS_NAME),
+    str(IssueCode.LLM_TARGET_CONFLICT),
+    str(IssueCode.LLM_PAYLOAD_PRIVACY_VIOLATION),
+    str(IssueCode.BLOCKING_SUGGESTION),
+}
 
 
 def _hash(value: object) -> str:
@@ -189,6 +212,27 @@ def _llm_issue_code_from_validation(issues: list[ValidationIssue]) -> str:
     return str(IssueCode.LLM_SUGGESTION_INVALID)
 
 
+def _llm_state_from_error_code(error_code: str) -> str:
+    if error_code == str(IssueCode.LLM_NOT_CONFIGURED):
+        return "not_configured"
+    if error_code in SCHEMA_ERROR_CODES:
+        return "schema_error"
+    if error_code in SAFETY_ERROR_CODES:
+        return "safety_error"
+    return "provider_error"
+
+
+def ai_preview_item_ids(record) -> list[str]:
+    return [
+        item.id
+        for item in decorate_plan_items(record.items)
+        if (item.operation or item.action) == Operation.RENAME
+        and not item.blocking
+        and not item.sidecar_type
+        and not item.manual_edited
+    ]
+
+
 def _record_from_suggestion(record, item: PlanItem, settings, suggestion: LLMSuggestion, payload_hash: str) -> LLMSuggestionRecord:
     validation_issues = _issues_for_suggestion(record, item, suggestion.suggested_name)
     status = "invalid" if any(issue.blocking for issue in validation_issues) else "valid"
@@ -292,6 +336,155 @@ def _target_fields(record, item: PlanItem, suggested_name: str) -> tuple[str, st
     except ValueError:
         target_rel = target.name
     return str(target), target_rel
+
+
+def apply_llm_suggestions_to_preview(
+    plan_id: str,
+    suggestions: Iterable[LLMSuggestionRecord],
+    *,
+    requested_item_ids: Iterable[str],
+    llm_mode: str = "",
+) -> object:
+    record = get_plan(plan_id)
+    requested = list(dict.fromkeys(requested_item_ids))
+    known_ids = {item.id for item in record.items}
+    unknown = set(requested) - known_ids
+    if unknown:
+        raise AppError(IssueCode.UNKNOWN_PLAN_ITEM, 400)
+
+    suggestions_by_item = {suggestion.item_id: suggestion for suggestion in suggestions}
+    updated_items = list(record.items)
+    applied_count = 0
+    invalid_count = 0
+    fallback_count = 0
+
+    for index, current in enumerate(list(updated_items)):
+        if current.id not in requested:
+            continue
+        suggestion = suggestions_by_item.get(current.id)
+        if current.manual_edited and (current.source == SuggestionSource.MANUAL or current.suggestion_source == SuggestionSource.MANUAL):
+            fallback_count += 1
+            updated_items[index] = current.model_copy(update={"llm_state": "valid_but_not_used"})
+            continue
+        if suggestion is None:
+            invalid_count += 1
+            fallback_count += 1
+            updated_items[index] = current.model_copy(update={"llm_state": "schema_error", "llm_error_code": str(IssueCode.LLM_SCHEMA_INVALID)})
+            continue
+        validation_codes = list(dict.fromkeys(str(issue.code) for issue in suggestion.validation_issues))
+        if suggestion.status != "valid":
+            invalid_count += 1
+            fallback_count += 1
+            error_code = next((code for code in suggestion.warnings if str(code).startswith("llm_")), str(IssueCode.LLM_SUGGESTION_INVALID))
+            updated_items[index] = current.model_copy(
+                update={
+                    "llm_state": _llm_state_from_error_code(error_code),
+                    "llm_error_code": error_code,
+                    "llm_suggested_name": suggestion.suggested_name,
+                    "llm_confidence": suggestion.confidence,
+                    "llm_reason": suggestion.reason,
+                    "llm_warnings": suggestion.warnings,
+                    "llm_validation_codes": validation_codes,
+                }
+            )
+            continue
+
+        working_record = record.model_copy(update={"items": updated_items})
+        issues = _issues_for_suggestion(working_record, current, suggestion.suggested_name)
+        if any(issue.blocking for issue in issues):
+            invalid_count += 1
+            fallback_count += 1
+            error_code = _llm_issue_code_from_validation(issues)
+            updated_items[index] = current.model_copy(
+                update={
+                    "llm_state": _llm_state_from_error_code(error_code),
+                    "llm_error_code": error_code,
+                    "llm_suggested_name": suggestion.suggested_name,
+                    "llm_confidence": suggestion.confidence,
+                    "llm_reason": suggestion.reason,
+                    "llm_warnings": list(dict.fromkeys([*suggestion.warnings, error_code])),
+                    "llm_validation_codes": list(dict.fromkeys(str(issue.code) for issue in issues)),
+                }
+            )
+            continue
+
+        target_path, target_rel = _target_fields(record, current, suggestion.suggested_name)
+        applied_count += 1
+        updated_items[index] = current.model_copy(
+            update={
+                "target_name": suggestion.suggested_name,
+                "suggested_name": suggestion.suggested_name,
+                "target_path": target_path,
+                "target_rel_path": target_rel,
+                "source": SuggestionSource.LLM,
+                "suggestion_source": SuggestionSource.LLM,
+                "llm_state": "applied_to_preview",
+                "llm_error_code": "",
+                "llm_suggested_name": suggestion.suggested_name,
+                "llm_confidence": suggestion.confidence,
+                "llm_reason": suggestion.reason,
+                "llm_warnings": suggestion.warnings,
+                "llm_validation_codes": validation_codes,
+                "llm_accepted": False,
+                "llm_suggestion_id": suggestion.suggestion_id,
+                "trace": [
+                    *current.trace,
+                    RuleTraceStep(
+                        rule_id="llm_preview",
+                        before=current.target_name or current.suggested_name,
+                        after=suggestion.suggested_name,
+                        preserved_tokens=[Path(suggestion.suggested_name).suffix],
+                        warnings=suggestion.warnings,
+                    ),
+                ],
+            }
+        )
+
+    updated_items = decorate_plan_items(validate_plan_items(record.root_path, updated_items))
+    plan_hash = compute_plan_hash(updated_items)
+    state = PlanState.VALIDATED if not any(issue.blocking for item in updated_items for issue in item.issues) else PlanState.STALE
+    return save_plan(
+        record.model_copy(
+            update={
+                "items": updated_items,
+                "plan_hash": plan_hash,
+                "state": state,
+                "summary": summarize_plan(updated_items),
+                "preview_mode": "ai",
+                "llm_used": True,
+                "llm_mode": llm_mode,
+                "llm_applied_count": applied_count,
+                "llm_invalid_count": invalid_count,
+                "llm_fallback_to_rule_count": fallback_count,
+            }
+        )
+    )
+
+
+def mark_ai_preview_fallback(plan_id: str, item_ids: Iterable[str], *, error_code: str, llm_mode: str = "") -> object:
+    record = get_plan(plan_id)
+    requested = set(item_ids)
+    state_name = _llm_state_from_error_code(error_code)
+    updated_items = [
+        item.model_copy(update={"llm_state": state_name, "llm_error_code": error_code})
+        if item.id in requested
+        else item
+        for item in record.items
+    ]
+    return save_plan(
+        record.model_copy(
+            update={
+                "items": updated_items,
+                "preview_mode": "ai",
+                "llm_used": True,
+                "llm_mode": llm_mode,
+                "llm_applied_count": 0,
+                "llm_invalid_count": len(requested),
+                "llm_fallback_to_rule_count": len(requested),
+                "messages": list(dict.fromkeys([*record.messages, "ai_preview_failed_fallback", str(error_code)])),
+            }
+        )
+    )
 
 
 def accept_llm_suggestion(plan_id: str, suggestion_id: str, request: LLMSuggestionApplyRequest) -> LLMSuggestionApplyResponse:

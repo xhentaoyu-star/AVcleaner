@@ -10,6 +10,7 @@
   <body>
     <header class="topbar">
       <div class="brand">
+        <div class="brand-mark" aria-hidden="true">A</div>
         <div>
           <h1>AVcleaner</h1>
           <span class="version">v{{ version }}</span>
@@ -17,10 +18,10 @@
         <span class="mode-chip">模式 <strong id="currentMode">-</strong></span>
       </div>
       <nav aria-label="主导航">
-        <button data-tab="workspace" class="active">工作台</button>
-        <button data-tab="trash">隔离</button>
-        <button data-tab="history">历史</button>
-        <button data-tab="settings">设置</button>
+        <button data-tab="workspace" class="active" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-analyze"></use></svg><span>工作台</span></button>
+        <button data-tab="trash" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-quarantine"></use></svg><span>隔离</span></button>
+        <button data-tab="history" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-history"></use></svg><span>历史</span></button>
+        <button data-tab="settings" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-settings"></use></svg><span>设置</span></button>
       </nav>
     </header>
 
@@ -28,121 +29,161 @@
       <section id="firstRunHelper" class="notice" hidden>
         <div>
           <h2>第一次使用</h2>
-          <p>AVcleaner 的数据保存在本机。扫描和预览不会改动文件，只有点击执行选中并确认后才会改名或隔离。LLM 默认只发送文件名，并且只给建议，不会自动执行。</p>
+          <p>AVcleaner 的扫描、规则预览和 AI 智能预览都只生成本地预览，不会改动文件。只有点击执行选中并确认后，才会按后端保存的计划改名或隔离。</p>
           <ol>
             <li>选择文件夹</li>
-            <li>扫描</li>
-            <li>生成预览</li>
-            <li>复核</li>
-            <li>执行选中</li>
-            <li>需要时回滚</li>
+            <li>选择预览模式</li>
+            <li>分析并生成预览</li>
+            <li>复核并编辑最终文件名</li>
+            <li>执行选中项</li>
+            <li>需要时从历史回滚</li>
           </ol>
         </div>
-        <button id="firstRunDismissBtn">知道了</button>
+        <button id="firstRunDismissBtn" type="button">知道了</button>
       </section>
 
       <section data-panel="workspace" class="panel active">
-        <section class="step-section">
+        <section class="step-section workflow-section">
           <div class="section-heading">
-            <span>Step 1</span>
-            <h2>选择/扫描文件夹</h2>
+            <span>本地工作流</span>
+            <h2>选择文件夹并生成预览</h2>
           </div>
-          <div class="toolbar">
-            <input id="rootPath" type="text" placeholder="L:\downloads" />
-            <button id="scanBtn">扫描</button>
-            <button id="planBtn" class="primary">生成预览</button>
-            <button id="validateBtn">重新校验</button>
-            <span id="loadingState" class="loading-state" aria-live="polite"></span>
+          <div class="command-bar">
+            <div class="path-shell">
+              <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-folder"></use></svg>
+              <input id="rootPath" type="text" placeholder="L:\downloads" aria-label="文件夹路径" />
+            </div>
+            <button id="folderPickerBtn" class="icon-btn" type="button" title="选择文件夹" aria-label="选择文件夹"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-folder"></use></svg></button>
+            <div class="mode-toggle" role="group" aria-label="预览模式">
+              <button type="button" data-preview-mode="rule" class="active" aria-pressed="true"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-check"></use></svg><span>规则预览</span></button>
+              <button type="button" data-preview-mode="ai" aria-pressed="false" hidden><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-ai"></use></svg><span>AI 智能预览</span></button>
+            </div>
+            <button id="analyzeBtn" class="primary has-icon" type="button" title="扫描并生成预览"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-analyze"></use></svg><span>规则预览</span></button>
+            <button id="validateBtn" class="icon-btn" type="button" title="重新校验" aria-label="重新校验"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-refresh"></use></svg></button>
           </div>
-        </section>
-
-        <section class="metrics" aria-label="预览摘要">
-          <button class="metric-card" data-filter="all"><strong id="metricFiles">0</strong><span>总文件</span></button>
-          <button class="metric-card" data-filter="all"><strong id="metricRename">0</strong><span>改名</span></button>
-          <button class="metric-card" data-filter="junk_candidate"><strong id="metricQuarantine">0</strong><span>隔离</span></button>
-          <button class="metric-card" data-filter="sidecar"><strong id="metricSidecar">0</strong><span>关联文件</span></button>
-          <button class="metric-card" data-filter="selected"><strong id="metricSelected">0</strong><span>已选</span></button>
-          <button class="metric-card" data-filter="blocking"><strong id="metricBlocking">0</strong><span>阻止</span></button>
-          <button class="metric-card" data-filter="warning"><strong id="metricWarning">0</strong><span>警告</span></button>
-          <button class="metric-card" data-filter="requires_review"><strong id="metricReview">0</strong><span>需复核</span></button>
-          <button class="metric-card" data-filter="manual_edited"><strong id="metricManual">0</strong><span>手动修改</span></button>
-        </section>
-
-        <section class="step-section">
-          <div class="section-heading">
-            <span>Step 2</span>
-            <h2>生成预览</h2>
-          </div>
-          <div class="plan-summary">
+          <div class="status-strip" aria-label="当前预览状态">
             <span>Scan <strong id="scanId">-</strong></span>
             <span>Plan <strong id="planId">-</strong></span>
             <span>状态 <strong id="planState">-</strong></span>
             <span>Hash <strong id="planHash">-</strong></span>
-            <span>Blocking <strong id="blockingCount">0</strong></span>
+            <span>阻止 <strong id="blockingCount">0</strong></span>
+            <span>已选 <strong id="statusSelectedCount">0</strong></span>
+            <span class="status-fill">最近操作 <strong id="lastOperationStatus">待命</strong></span>
+            <span id="loadingState" class="loading-state" aria-live="polite"></span>
           </div>
+          <div class="recent-row">
+            <strong>最近文件夹</strong>
+            <div id="recentFolders" class="recent-list"></div>
+            <button id="clearRecentFoldersBtn" class="icon-btn" type="button" title="清除最近记录" aria-label="清除最近记录"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-clear"></use></svg></button>
+          </div>
+        </section>
+
+        <section class="metrics" aria-label="预览摘要">
+          <button class="metric-card" data-filter="all" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-summary"></use></svg><strong id="metricFiles">0</strong><span>总文件</span></button>
+          <button class="metric-card" data-filter="all" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-edit"></use></svg><strong id="metricRename">0</strong><span>改名</span></button>
+          <button class="metric-card" data-filter="junk_candidate" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-quarantine"></use></svg><strong id="metricQuarantine">0</strong><span>隔离</span></button>
+          <button class="metric-card" data-filter="sidecar" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-copy"></use></svg><strong id="metricSidecar">0</strong><span>关联文件</span></button>
+          <button class="metric-card" data-filter="selected" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-check"></use></svg><strong id="metricSelected">0</strong><span>已选</span></button>
+          <button class="metric-card" data-filter="blocking" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-blocking"></use></svg><strong id="metricBlocking">0</strong><span>阻止</span></button>
+          <button class="metric-card" data-filter="warning" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-warning"></use></svg><strong id="metricWarning">0</strong><span>警告</span></button>
+          <button class="metric-card" data-filter="requires_review" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-review"></use></svg><strong id="metricReview">0</strong><span>需复核</span></button>
+          <button class="metric-card" data-filter="manual_edited" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-edit"></use></svg><strong id="metricManual">0</strong><span>手动修改</span></button>
         </section>
 
         <section class="step-section">
           <div class="section-heading">
-            <span>Step 3</span>
-            <h2>复核与选择</h2>
+            <span>预览信息</span>
+            <h2>复核、编辑和选择</h2>
           </div>
           <div class="review-toolbar">
-            <label>
-              筛选
+            <label class="filter-label">
+              <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-filter"></use></svg>
+              <span>筛选</span>
               <select id="filterSelect"></select>
             </label>
-            <button id="selectSafeBtn">选择安全项</button>
-            <button id="clearSelectionBtn">清空选择</button>
-            <button id="exportPlanJsonBtn">导出 JSON</button>
-            <button id="exportPlanCsvBtn">导出 CSV</button>
+            <button id="selectSafeBtn" class="icon-btn" type="button" title="选择安全项" aria-label="选择安全项"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-check"></use></svg></button>
+            <button id="clearSelectionBtn" class="icon-btn" type="button" title="清空选择" aria-label="清空选择"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-clear"></use></svg></button>
+            <button id="exportPlanJsonBtn" class="icon-btn" type="button" title="导出计划 JSON" aria-label="导出计划 JSON"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-export-json"></use></svg></button>
+            <button id="exportPlanCsvBtn" class="icon-btn" type="button" title="导出计划 CSV" aria-label="导出计划 CSV"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-export-csv"></use></svg></button>
           </div>
 
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th class="check-col"></th>
-                  <th>状态</th>
-                  <th>原文件名</th>
-                  <th>建议文件名</th>
-                  <th>说明</th>
-                  <th>复核信息</th>
-                  <th>LLM 建议</th>
-                  <th>详情</th>
-                </tr>
-              </thead>
-              <tbody id="planBody"></tbody>
-            </table>
+          <div class="preview-shell">
+            <div class="table-wrap">
+              <table class="preview-table">
+                <colgroup>
+                  <col class="col-select" />
+                  <col class="col-status" />
+                  <col class="col-original" />
+                  <col class="col-target" />
+                  <col class="col-source" />
+                  <col class="col-review" />
+                  <col class="col-ai" />
+                  <col class="col-actions" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th class="check-col"></th>
+                    <th>状态</th>
+                    <th>原文件</th>
+                    <th>最终文件名</th>
+                    <th>来源</th>
+                    <th>复核摘要</th>
+                    <th>AI/规则状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="planBody"></tbody>
+              </table>
+            </div>
+            <aside id="detailDrawerPanel" class="detail-drawer" hidden aria-label="项目详情">
+              <div class="drawer-header">
+                <div>
+                  <span>项目详情</span>
+                  <h3 id="detailDrawerTitle">-</h3>
+                </div>
+                <button id="closeDetailDrawerBtn" class="icon-btn" type="button" title="关闭详情" aria-label="关闭详情"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-close"></use></svg></button>
+              </div>
+              <div id="detailDrawerBody" class="drawer-body"></div>
+            </aside>
           </div>
         </section>
 
-        <details id="llmSection" class="step-section llm-section" hidden>
-          <summary>
-            <span>Step 4</span>
-            <strong>LLM 建议</strong>
-          </summary>
-          <p class="privacy-note">LLM 只提供建议，不会自动执行，不会自动选择。默认只发送文件名、扩展名、规则建议、番号、关联文件信息和邻近文件名。</p>
-          <div class="review-toolbar">
-            <button id="previewLlmPayloadBtn">预览 LLM 载荷</button>
-            <button id="llmBtn">请求 LLM 建议</button>
-          </div>
-        </details>
-
         <section class="step-section">
           <div class="section-heading">
-            <span>Step 5</span>
-            <h2>执行与回滚</h2>
+            <span>执行</span>
+            <h2>执行选中项</h2>
           </div>
           <div class="execute-strip">
             <div>
               <strong>已选 <span id="selectedCount">0</span> 项</strong>
               <p id="executeReason">会先显示执行摘要，并再次要求确认。</p>
             </div>
-            <button id="executionSummaryBtn">执行摘要</button>
-            <button id="executeBtn" class="danger">执行选中</button>
+            <button id="executionSummaryBtn" class="icon-btn" type="button" title="执行摘要" aria-label="执行摘要"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-summary"></use></svg></button>
+            <button id="executeBtn" class="danger has-icon" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-execute"></use></svg><span>执行选中</span></button>
           </div>
           <pre id="executionSummaryResult" class="test-result"></pre>
+          <div id="executionReportPanel" class="execution-report" hidden>
+            <div class="section-heading">
+              <span>执行报告</span>
+              <h2>本次执行结果</h2>
+            </div>
+            <div class="diagnostics-summary">
+              <div class="summary-item"><strong>run_id</strong><span id="executionReportRunId">-</span></div>
+              <div class="summary-item"><strong>状态</strong><span id="executionReportState">-</span></div>
+              <div class="summary-item"><strong>改名</strong><span id="executionReportRenamed">0</span></div>
+              <div class="summary-item"><strong>隔离</strong><span id="executionReportQuarantined">0</span></div>
+              <div class="summary-item"><strong>跳过</strong><span id="executionReportSkipped">0</span></div>
+              <div class="summary-item"><strong>失败</strong><span id="executionReportFailed">0</span></div>
+              <div class="summary-item"><strong>回滚</strong><span id="executionReportRollback">-</span></div>
+            </div>
+            <h3>失败项</h3>
+            <ul id="executionReportFailedItems" class="compact-list"></ul>
+            <div class="review-toolbar">
+              <button id="viewLastRunBtn" class="icon-btn" type="button" title="查看历史详情" aria-label="查看历史详情"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-details"></use></svg></button>
+              <button id="previewLastRollbackBtn" class="icon-btn" type="button" title="回滚预览" aria-label="回滚预览"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-rollback"></use></svg></button>
+              <button id="exportLastRunReportBtn" class="icon-btn" type="button" title="导出报告" aria-label="导出报告"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-export-json"></use></svg></button>
+            </div>
+          </div>
         </section>
       </section>
 
@@ -152,7 +193,7 @@
             <span>隔离预览</span>
             <h2>垃圾候选</h2>
           </div>
-          <p class="privacy-note">隔离不是永久删除，可通过回滚恢复。大文件隔离可能耗时，但仍不会永久删除。</p>
+          <p class="privacy-note">隔离不是永久删除，可通过历史回滚恢复。大文件隔离可能耗时，但仍不会覆盖或永久删除文件。</p>
           <div class="table-wrap small-table">
             <table>
               <thead>
@@ -177,8 +218,14 @@
             <h2>执行批次与回滚</h2>
           </div>
           <div class="history-actions">
-            <button id="refreshRunsBtn">刷新历史</button>
+            <button id="refreshRunsBtn" class="icon-btn" type="button" title="刷新历史" aria-label="刷新历史"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-refresh"></use></svg></button>
+            <label class="filter-label">
+              <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-filter"></use></svg>
+              <span>筛选</span>
+              <select id="runFilterSelect"></select>
+            </label>
           </div>
+          <div id="runSummaryCards" class="metrics compact-metrics"></div>
           <div class="table-wrap small-table">
             <table>
               <thead>
@@ -186,6 +233,7 @@
                   <th>批次</th>
                   <th>时间</th>
                   <th>状态</th>
+                  <th>回滚</th>
                   <th>摘要</th>
                   <th></th>
                 </tr>
@@ -193,6 +241,40 @@
               <tbody id="runsBody"></tbody>
             </table>
           </div>
+          <section id="runDetailPanel" class="detail-panel" hidden>
+            <div class="section-heading">
+              <span>批次详情</span>
+              <h2 id="runDetailId">-</h2>
+            </div>
+            <div class="diagnostics-summary">
+              <div class="summary-item"><strong>状态</strong><span id="runDetailState">-</span></div>
+              <div class="summary-item"><strong>时间</strong><span id="runDetailTime">-</span></div>
+              <div class="summary-item"><strong>数量</strong><span id="runDetailCounts">-</span></div>
+              <div class="summary-item"><strong>回滚</strong><span id="runDetailRollback">-</span></div>
+            </div>
+            <div class="review-toolbar">
+              <button id="runRollbackPreviewBtn" class="icon-btn" type="button" title="回滚预览" aria-label="回滚预览"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-rollback"></use></svg></button>
+              <button id="runRollbackBtn" class="danger has-icon" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-rollback"></use></svg><span>执行回滚</span></button>
+              <button id="runExportJsonBtn" class="icon-btn" type="button" title="导出 JSON" aria-label="导出 JSON"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-export-json"></use></svg></button>
+              <button id="runExportCsvBtn" class="icon-btn" type="button" title="导出 CSV" aria-label="导出 CSV"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-export-csv"></use></svg></button>
+            </div>
+            <pre id="runRollbackPreviewResult" class="test-result"></pre>
+            <div class="table-wrap small-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>动作</th>
+                    <th>状态</th>
+                    <th>原文件名</th>
+                    <th>目标文件名</th>
+                    <th>问题</th>
+                    <th>回滚状态</th>
+                  </tr>
+                </thead>
+                <tbody id="runDetailItemsBody"></tbody>
+              </table>
+            </div>
+          </section>
         </section>
       </section>
 
@@ -233,7 +315,7 @@
             <input id="llmSendPath" type="checkbox" />
             发送完整路径
           </label>
-          <button id="testLlmBtn">测试 LLM</button>
+          <button id="testLlmBtn" type="button">测试 LLM</button>
           <div id="llmTestSummary" class="diagnostics-summary"></div>
           <pre id="llmTestResult" class="test-result"></pre>
         </section>
@@ -262,7 +344,7 @@
           </label>
           <label class="inline">
             <input id="rulePreservePartSuffix" type="checkbox" />
-            保留分集后缀
+            保留分段后缀
           </label>
           <label>
             复核阈值
@@ -272,22 +354,22 @@
             规则测试
             <input id="ruleTestFilename" type="text" placeholder="[ad.com] FC2-PPV-1234567_1.mp4" />
           </label>
-          <button id="testRuleBtn">测试规则</button>
+          <button id="testRuleBtn" type="button">测试规则</button>
           <pre id="ruleTestResult" class="test-result"></pre>
         </section>
 
         <section class="settings-section">
           <h2>导入/导出设置</h2>
-          <button id="exportSettingsBtn">导出设置</button>
+          <button id="exportSettingsBtn" type="button">导出设置</button>
           <pre id="settingsExportResult" class="test-result"></pre>
           <label>
             导入设置 JSON
             <textarea id="settingsImportPayload" rows="6"></textarea>
           </label>
           <div class="review-toolbar">
-            <button id="importSettingsDryRunBtn">试运行导入</button>
-            <button id="applyImportSettingsBtn">应用导入</button>
-            <button id="saveSettingsBtn" class="primary">保存设置</button>
+            <button id="importSettingsDryRunBtn" type="button">试运行导入</button>
+            <button id="applyImportSettingsBtn" type="button">应用导入</button>
+            <button id="saveSettingsBtn" class="primary" type="button">保存设置</button>
           </div>
           <pre id="settingsImportResult" class="test-result"></pre>
         </section>
@@ -296,10 +378,10 @@
           <h2>诊断</h2>
           <p class="privacy-note">诊断 JSON 会省略密钥、认证头、原始 LLM 载荷和完整媒体路径。</p>
           <div class="review-toolbar">
-            <button id="refreshDiagnosticsBtn">刷新诊断</button>
-            <button id="copyDiagnosticsBtn">复制诊断 JSON</button>
-            <button disabled title="打包模式下打开文件夹容易暴露本机路径，暂缓开放。">打开日志文件夹</button>
-            <button disabled title="打包模式下打开文件夹容易暴露本机路径，暂缓开放。">打开数据文件夹</button>
+            <button id="refreshDiagnosticsBtn" class="icon-btn" type="button" title="刷新诊断" aria-label="刷新诊断"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-diagnostics"></use></svg></button>
+            <button id="copyDiagnosticsBtn" class="icon-btn" type="button" title="复制诊断 JSON" aria-label="复制诊断 JSON"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-copy"></use></svg></button>
+            <button disabled title="暂缓开放，避免暴露本机路径。">打开日志文件夹</button>
+            <button disabled title="暂缓开放，避免暴露本机路径。">打开数据文件夹</button>
           </div>
           <div id="diagnosticsSummary" class="diagnostics-summary"></div>
           <details id="diagnosticsRawJson" class="raw-json">
@@ -310,7 +392,7 @@
       </section>
     </main>
 
-    <div id="toast" class="toast"></div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <script src="/static/app.js"></script>
   </body>
 </html>

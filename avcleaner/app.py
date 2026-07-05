@@ -5,7 +5,7 @@ from collections import Counter
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Body, Depends, FastAPI, Header, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -20,9 +20,13 @@ from .errors import AppError
 from .executor import execute_plan_by_id, rollback_run
 from .llm import check_llm_settings, suggest_with_llm
 from .models import (
+    AnalyzeRequest,
+    AnalyzeResponse,
     AppSettings,
     CorpusReportResponse,
     ExecutionSummaryRequest,
+    FolderPickerStateRequest,
+    FolderPickerStateResponse,
     LLMPayloadPreviewRequest,
     LLMSuggestionApplyRequest,
     LLMSuggestionRejectRequest,
@@ -32,8 +36,11 @@ from .models import (
     PlanLLMSuggestRequest,
     PlanSelectionRequest,
     PlanRequest,
+    RecentFolderRequest,
     RuleTestRequest,
     RuleTestResponse,
+    RollbackPreviewRequest,
+    RollbackRequest,
     ScanRequest,
     SettingsExportResponse,
     SettingsImportRequest,
@@ -41,9 +48,12 @@ from .models import (
 )
 from .llm_review import (
     accept_llm_suggestion,
+    ai_preview_item_ids,
+    apply_llm_suggestions_to_preview,
     build_payload_preview,
     generate_llm_suggestions,
     list_plan_llm_suggestions,
+    mark_ai_preview_fallback,
     reject_llm_suggestion,
 )
 from .planner import (
@@ -56,7 +66,18 @@ from .planner import (
     update_plan_selection,
     validate_stored_plan,
 )
-from .repository import create_scan, get_plan, list_runs, mark_interrupted_runs
+from .recovery import build_rollback_preview, build_run_detail, export_run_csv, export_run_json
+from .repository import (
+    clear_recent_folders,
+    create_scan,
+    get_local_ui_state,
+    get_plan,
+    list_recent_folders,
+    list_runs,
+    mark_interrupted_runs,
+    set_local_ui_state,
+    upsert_recent_folder,
+)
 from .rule_corpus import build_report as build_corpus_report
 from .rule_corpus import report_response_payload
 from .rules import MAX_RULE_TEST_FILENAME_LENGTH, suggest_name_with_trace
@@ -112,6 +133,8 @@ def index(request: Request) -> HTMLResponse:
 
 @app.get("/api/capabilities")
 def capabilities() -> dict:
+    settings = get_settings()
+    llm_configured = _llm_configured(settings)
     return {
         "name": "AVcleaner",
         "version": __version__,
@@ -152,7 +175,23 @@ def capabilities() -> dict:
             "quarantine",
             "execute_by_plan_id",
             "rollback",
+            "rollback_preview",
             "history",
+            "run_detail",
+            "run_export",
+            "recent_folders",
+            "execution_report",
+            "native_folder_picker",
+            "unified_analyze",
+            "preview_modes",
+            "ai_smart_preview",
+            "segment_suffix_preservation",
+            "review_info_deduplication",
+            "ui_polish_072",
+            "icon_system",
+            "toast_feedback",
+            "detail_drawer",
+            "responsive_table",
             "api_token",
             "legacy_execute_disabled",
             "beta_ux_polish",
@@ -169,6 +208,7 @@ def capabilities() -> dict:
         "junk_extensions": sorted(JUNK_EXTENSIONS),
         "text_junk_extensions": sorted(TEXT_JUNK_EXTENSIONS),
         "llm_providers": ["openai_compatible", "ollama"],
+        "preview_modes": ["rule", "ai"] if llm_configured else ["rule"],
         "safety": {
             "requires_preview": True,
             "requires_confirm": True,
@@ -213,6 +253,24 @@ def capabilities() -> dict:
             "ui_explanation_coverage": True,
             "diagnostics_summary": True,
             "quarantine_reason_explanations": True,
+            "run_detail": True,
+            "rollback_preview": True,
+            "run_export": True,
+            "recent_folders": True,
+            "execution_report": True,
+            "native_folder_picker": True,
+            "unified_analyze": True,
+            "preview_modes": True,
+            "ai_smart_preview": llm_configured,
+            "ai_preview": llm_configured,
+            "ai_preview_requires_llm_config": True,
+            "segment_suffix_preservation": True,
+            "review_info_deduplication": True,
+            "ui_polish_072": True,
+            "icon_system": True,
+            "toast_feedback": True,
+            "detail_drawer": True,
+            "responsive_table": True,
         },
     }
 
@@ -265,6 +323,33 @@ def _safe_runtime_path_label(kind: str, mode: str) -> str:
     return f"<AVCLEANER_DATA_DIR>\\{kind}"
 
 
+def _llm_configured(settings: AppSettings) -> bool:
+    return settings.llm.provider != "disabled" and bool(settings.llm.model)
+
+
+def _prepare_scan_request(request: ScanRequest, settings: AppSettings) -> ScanRequest:
+    if request.exclude_dirs is None:
+        request.exclude_dirs = settings.exclude_dirs
+    if request.extensions is None:
+        request.extensions = sorted(
+            set(settings.video_extensions) | set(settings.sidecar_extensions) | set(JUNK_EXTENSIONS) | set(TEXT_JUNK_EXTENSIONS)
+        )
+    return request
+
+
+def _persist_successful_scan(request: ScanRequest):
+    response = scan_files(request)
+    persisted = create_scan(request, response)
+    upsert_recent_folder(
+        persisted.root_path,
+        last_scan_id=persisted.scan_id,
+        item_count=persisted.total_files,
+        mode=runtime_path_info().mode,
+    )
+    set_local_ui_state("last_folder_dialog_dir", persisted.root_path)
+    return persisted
+
+
 @app.get("/api/diagnostics")
 def api_diagnostics(_token: None = Depends(require_token)) -> dict:
     paths = runtime_path_info()
@@ -287,7 +372,7 @@ def api_diagnostics(_token: None = Depends(require_token)) -> dict:
         "keyring_ok": bool(safe_health.get("keyring_ok")),
         "legacy_execute_disabled": True,
         "generic_llm_suggest_disabled": True,
-        "llm_configured": settings.llm.provider != "disabled" and bool(settings.llm.model),
+        "llm_configured": _llm_configured(settings),
         "send_full_path_default": False,
         "llm_send_full_path": bool(settings.llm.send_full_path),
     }
@@ -350,15 +435,48 @@ def api_import_settings(request: SettingsImportRequest, _token: None = Depends(r
 @app.post("/api/scan")
 def api_scan(request: ScanRequest, _token: None = Depends(require_token)):
     settings = get_settings()
-    if request.exclude_dirs is None:
-        request.exclude_dirs = settings.exclude_dirs
-    if request.extensions is None:
-        request.extensions = sorted(
-            set(settings.video_extensions) | set(settings.sidecar_extensions) | set(JUNK_EXTENSIONS) | set(TEXT_JUNK_EXTENSIONS)
-        )
+    request = _prepare_scan_request(request, settings)
     try:
-        response = scan_files(request)
-        return create_scan(request, response)
+        return _persist_successful_scan(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/analyze")
+async def api_analyze(request: AnalyzeRequest, _token: None = Depends(require_token)) -> AnalyzeResponse:
+    settings = get_settings()
+    if request.preview_mode == "ai" and not _llm_configured(settings):
+        raise AppError(IssueCode.LLM_NOT_CONFIGURED, 400)
+    scan_request = _prepare_scan_request(
+        ScanRequest(root_path=request.root_path, recursive=request.recursive, include_hidden=request.include_hidden),
+        settings,
+    )
+    try:
+        scan = _persist_successful_scan(scan_request)
+        record = create_plan(PlanRequest(scan_id=scan.scan_id, rules=settings.rules, preview_mode=request.preview_mode))
+        record = validate_stored_plan(record.plan_id)
+        if record.scan_id:
+            upsert_recent_folder(record.root_path, last_plan_id=record.plan_id, item_count=record.summary.get("total_items", 0), mode=runtime_path_info().mode)
+        if request.preview_mode == "ai":
+            item_ids = ai_preview_item_ids(record)
+            llm_mode = settings.llm.compatibility_mode
+            if item_ids:
+                try:
+                    suggestions = await generate_llm_suggestions(
+                        record.plan_id,
+                        PlanLLMSuggestRequest(item_ids=item_ids, include_neighbors=True, use_cache=True),
+                    )
+                    record = apply_llm_suggestions_to_preview(
+                        record.plan_id,
+                        suggestions.suggestions,
+                        requested_item_ids=item_ids,
+                        llm_mode=llm_mode,
+                    )
+                except AppError as exc:
+                    record = mark_ai_preview_fallback(record.plan_id, item_ids, error_code=str(exc.error_code), llm_mode=llm_mode)
+            else:
+                record = record.model_copy(update={"preview_mode": "ai", "llm_used": False, "llm_mode": llm_mode})
+        return AnalyzeResponse(scan=scan, plan=response_from_record(record))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -367,7 +485,10 @@ def api_scan(request: ScanRequest, _token: None = Depends(require_token)):
 def api_create_plan(request: PlanRequest, _token: None = Depends(require_token)):
     try:
         persisted_rules = get_settings().rules
-        return response_from_record(create_plan(request.model_copy(update={"rules": persisted_rules})))
+        record = create_plan(request.model_copy(update={"rules": persisted_rules}))
+        if record.scan_id:
+            upsert_recent_folder(record.root_path, last_plan_id=record.plan_id, item_count=record.summary.get("total_items", 0), mode=runtime_path_info().mode)
+        return response_from_record(record)
     except (ValueError, KeyError) as exc:
         raise AppError(str(exc), 400) from exc
 
@@ -521,14 +642,89 @@ def api_reject_llm_suggestion(
         raise AppError("suggestion_not_found", 404) from exc
 
 
+@app.get("/api/runs/{run_id}")
+def api_run_detail(run_id: str, _token: None = Depends(require_token)):
+    try:
+        return build_run_detail(run_id)
+    except KeyError as exc:
+        raise AppError("run_not_found", 404) from exc
+
+
+@app.post("/api/runs/{run_id}/rollback-preview")
+def api_rollback_preview(
+    run_id: str,
+    request: RollbackPreviewRequest | None = Body(default=None),
+    _token: None = Depends(require_token),
+):
+    try:
+        return build_rollback_preview(run_id, request.item_ids if request else None)
+    except KeyError as exc:
+        raise AppError("run_not_found", 404) from exc
+
+
 @app.post("/api/runs/{run_id}/rollback")
-def api_rollback(run_id: str, _token: None = Depends(require_token)):
-    return rollback_run(run_id)
+def api_rollback(
+    run_id: str,
+    request: RollbackRequest | None = Body(default=None),
+    _token: None = Depends(require_token),
+):
+    try:
+        return rollback_run(run_id, request.item_ids if request else None)
+    except KeyError as exc:
+        raise AppError("run_not_found", 404) from exc
+
+
+@app.get("/api/runs/{run_id}/export.json")
+def api_export_run_json(run_id: str, _token: None = Depends(require_token)):
+    try:
+        return export_run_json(run_id)
+    except KeyError as exc:
+        raise AppError("run_not_found", 404) from exc
+
+
+@app.get("/api/runs/{run_id}/export.csv")
+def api_export_run_csv(run_id: str, _token: None = Depends(require_token)) -> Response:
+    try:
+        return Response(content=export_run_csv(run_id), media_type="text/csv")
+    except KeyError as exc:
+        raise AppError("run_not_found", 404) from exc
 
 
 @app.get("/api/runs")
 def api_runs(_token: None = Depends(require_token)):
     return list_runs()
+
+
+@app.get("/api/recent-folders")
+def api_recent_folders(_token: None = Depends(require_token)):
+    return list_recent_folders()
+
+
+@app.post("/api/recent-folders")
+def api_add_recent_folder(request: RecentFolderRequest, _token: None = Depends(require_token)):
+    return upsert_recent_folder(
+        request.path,
+        last_scan_id=request.last_scan_id,
+        last_plan_id=request.last_plan_id,
+        item_count=request.item_count,
+        mode=request.mode,
+    )
+
+
+@app.delete("/api/recent-folders")
+def api_clear_recent_folders(_token: None = Depends(require_token)):
+    return {"cleared": clear_recent_folders()}
+
+
+@app.get("/api/folder-picker-state")
+def api_folder_picker_state(_token: None = Depends(require_token)) -> FolderPickerStateResponse:
+    return FolderPickerStateResponse(last_folder_dialog_dir=get_local_ui_state("last_folder_dialog_dir"))
+
+
+@app.put("/api/folder-picker-state")
+def api_put_folder_picker_state(request: FolderPickerStateRequest, _token: None = Depends(require_token)) -> FolderPickerStateResponse:
+    set_local_ui_state("last_folder_dialog_dir", request.last_folder_dialog_dir.strip())
+    return FolderPickerStateResponse(last_folder_dialog_dir=get_local_ui_state("last_folder_dialog_dir"))
 
 
 @app.get("/api/summary")

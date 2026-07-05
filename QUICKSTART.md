@@ -1,46 +1,50 @@
-# AVcleaner v0.6.1 快速开始
+# AVcleaner v0.7.2 快速开始
 
-AVcleaner 是本机文件名复核工具。扫描和生成预览不会改名、隔离或删除文件。
-只有点击执行选中并确认后，文件才会变化。
+AVcleaner 是本机文件名预览和安全改名工具。扫描、规则预览、AI 智能预览都不会改动文件。只有点击“执行选中”并确认后，文件才会被改名或隔离。
+
+隔离不是永久删除；需要恢复时先做回滚预览，再从历史详情执行回滚。
 
 ## 基本流程
 
-1. 选择文件夹。
-2. 扫描。
-3. 生成预览。
-4. 复核表格。阻止项不能执行，警告项需要检查。
-5. 选择安全项，或只手动勾选你确认过的行。
-6. 查看执行摘要。
-7. 执行选中。
-8. 需要时从历史记录回滚。
+1. 启动桌面版，使用文件夹按钮选择文件夹；浏览器模式下手动粘贴路径。
+2. 选择“规则预览”；如果已配置 LLM，主界面会额外显示“AI 智能预览”。
+3. 点击预览按钮。AVcleaner 会一次完成扫描、生成预览、校验并显示表格。
+4. 复核“最终文件名”列；规则模式和 AI 模式下都可以手动编辑。
+5. 点表格右侧详情图标查看完整路径、问题代码、Trace、AI 细节和关联文件信息。
+6. 选择安全项，或只勾选自己确认过的项目。
+7. 查看执行摘要，再执行选中项。
+8. 执行后查看本地执行报告。
+9. 需要恢复时，先在历史详情里做回滚预览，再执行回滚。
+10. 需要留档时导出运行报告 JSON/CSV。
 
-隔离不是永久删除，可通过回滚恢复。大文件隔离可能耗时，但仍按同一套安全
-流程执行。
+## v0.7.2 界面反馈
 
-## LLM suggestions
+- 次要操作改成带提示的图标按钮，主操作仍保留清楚文字。
+- 分析、AI 回退、校验、手动编辑、导出、执行、回滚和设置保存都会显示即时状态。
+- 预览表格使用固定列宽和内部滚动，长内容会省略；完整内容放在详情抽屉。
+- 这些界面改动只影响本地使用体验，不改变 `plan_hash`、后端校验、执行确认或回滚安全规则。
 
-LLM 面板默认折叠，只在已有预览后使用。
+## AI 智能预览
 
-Compatibility mode does not bypass validation. LLM suggestions are never
-auto-selected, never auto-applied, and never execute files. By default AVcleaner
-sends filename-level data only, not full local paths.
+- 未配置 LLM 时，主流程不显示 AI 模式。
+- Strict OpenAI JSON Schema、Prompt JSON compatibility、Claude gateway compatibility 和 Ollama 都只是兼容模式，不会绕过校验。
+- AI 建议只写入预览里的最终文件名，不会执行文件。
+- AI 输出必须通过结构校验和文件名安全校验。
+- 无效 AI 建议会回退到规则结果，并显示稳定错误码。
+- 手动编辑优先；AI 不会覆盖手动改过的最终文件名。
+- 默认不会把完整本地路径发送给云端 LLM。
 
-可选模式：
+## 分段后缀
 
-- Strict OpenAI JSON Schema: 用于真正支持 `response_format=json_schema` 的供应商。
-- Prompt JSON compatibility: 用于自称 OpenAI 兼容但不支持严格 schema 的网关。
-- Claude gateway compatibility: 用于 Claude/Anthropic 风格中间层。
-- Ollama: 本地 Ollama JSON mode。
+v0.7.2 会保留这些后缀：
 
-## 便携 zip
+- `FSVSS-004-A.mp4` -> `FSVSS-004-A.mp4`
+- `FSVSS004-b.mp4` -> `FSVSS-004-B.mp4`
+- `ABP-123-1.mp4` -> `ABP-123-1.mp4`
+- `ABP-123-2.mp4` -> `ABP-123-2.mp4`
 
-解压 `AVcleaner-v0.6.1-portable-win-x64.zip` 后运行 `AVcleaner.exe`。
-有 `portable.flag` 时，数据保存在程序旁边的 `data`、`logs`、`quarantine`。
-没有便携标记时，Windows 默认使用 `%LOCALAPPDATA%\AVcleaner`。
+## 便携版
 
-发布包旁边的 `.sha256` 文件可用于核对 SHA256。
+解压 `AVcleaner-v0.7.2-portable-win-x64.zip` 后运行 `AVcleaner.exe`。有 `portable.flag` 时，数据保存在程序旁边的 `data`、`logs`、`quarantine`。没有便携标记时，Windows 默认使用 `%LOCALAPPDATA%\AVcleaner`。
 
-## What AVcleaner does not do
-
-AVcleaner does not scrape metadata, download covers, generate NFO files, move
-files into the final media library, or replace OpenAver.
+AVcleaner 不做刮削、封面下载、NFO 生成、最终媒体库移动、演员/片商/分类整理，也不接 OpenAver 数据库。

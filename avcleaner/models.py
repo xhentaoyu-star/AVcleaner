@@ -243,6 +243,13 @@ class ScanRequest(StrictModel):
     exclude_dirs: list[str] | None = None
 
 
+class AnalyzeRequest(StrictModel):
+    root_path: str
+    preview_mode: Literal["rule", "ai"] = "rule"
+    recursive: bool = True
+    include_hidden: bool = False
+
+
 class ScanItem(StrictModel):
     id: str
     scan_id: str = ""
@@ -362,6 +369,25 @@ class PlanItem(StrictModel):
     last_edited_at: str | None = None
     llm_accepted: bool = False
     llm_suggestion_id: str = ""
+    llm_state: Literal[
+        "hidden",
+        "not_requested",
+        "not_configured",
+        "requesting",
+        "applied_to_preview",
+        "valid_but_not_used",
+        "invalid",
+        "schema_error",
+        "safety_error",
+        "provider_error",
+        "stale",
+    ] = "hidden"
+    llm_error_code: str = ""
+    llm_suggested_name: str = ""
+    llm_confidence: float | None = None
+    llm_reason: str = ""
+    llm_warnings: list[str] = Field(default_factory=list)
+    llm_validation_codes: list[str] = Field(default_factory=list)
     relative_path: str = ""
     extension: str = ""
     size: int = 0
@@ -395,7 +421,7 @@ class PlanItem(StrictModel):
         self.selected = self.checked
         self.blocking = blocking
         self.warning_count = len([issue for issue in self.issues if not issue.blocking])
-        self.issue_codes = [str(issue.code) for issue in self.issues]
+        self.issue_codes = list(dict.fromkeys(str(issue.code) for issue in self.issues))
 
 
 class PlanRecord(StrictModel):
@@ -408,6 +434,13 @@ class PlanRecord(StrictModel):
     items: list[PlanItem] = Field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
+    preview_mode: Literal["rule", "ai"] = "rule"
+    llm_used: bool = False
+    llm_mode: str = ""
+    llm_applied_count: int = 0
+    llm_invalid_count: int = 0
+    llm_fallback_to_rule_count: int = 0
+    messages: list[str] = Field(default_factory=list)
 
 
 class PlanRequest(StrictModel):
@@ -416,6 +449,7 @@ class PlanRequest(StrictModel):
     files: list[ScanItem] | None = None
     rules: RuleConfig = Field(default_factory=RuleConfig)
     use_llm: bool = False
+    preview_mode: Literal["rule", "ai"] = "rule"
 
 
 class PlanResponse(StrictModel):
@@ -426,12 +460,32 @@ class PlanResponse(StrictModel):
     items: list[PlanItem]
     summary: dict[str, int]
     state: PlanState = PlanState.DRAFT
+    preview_mode: Literal["rule", "ai"] = "rule"
+    llm_used: bool = False
+    llm_mode: str = ""
+    llm_applied_count: int = 0
+    llm_invalid_count: int = 0
+    llm_fallback_to_rule_count: int = 0
+    messages: list[str] = Field(default_factory=list)
+
+
+class AnalyzeResponse(StrictModel):
+    scan: ScanResponse
+    plan: PlanResponse
 
 
 class PlanExecuteRequest(StrictModel):
     selected_item_ids: list[str]
     confirm: bool = False
     plan_hash: str
+
+
+class RollbackPreviewRequest(StrictModel):
+    item_ids: list[str] | None = None
+
+
+class RollbackRequest(StrictModel):
+    item_ids: list[str] | None = None
 
 
 class PlanItemPatchRequest(StrictModel):
@@ -650,6 +704,14 @@ class SettingsExportResponse(StrictModel):
     format_version: int = 1
 
 
+class FolderPickerStateRequest(StrictModel):
+    last_folder_dialog_dir: str = ""
+
+
+class FolderPickerStateResponse(StrictModel):
+    last_folder_dialog_dir: str = ""
+
+
 class SettingsImportRequest(StrictModel):
     settings: dict[str, Any]
     dry_run: bool = True
@@ -661,6 +723,14 @@ class SettingsImportResponse(StrictModel):
     settings: dict[str, Any]
     changes: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class RecentFolderRequest(StrictModel):
+    path: str
+    last_scan_id: str = ""
+    last_plan_id: str = ""
+    item_count: int = 0
+    mode: Literal["dev", "portable", "appdata"] | str = "dev"
 
 
 class CorpusFixtureSummary(StrictModel):
@@ -708,6 +778,8 @@ class ExecutionItem(StrictModel):
     snapshot: FileSnapshot | None = None
     created_at: str = ""
     updated_at: str = ""
+    rollback_status: str = ""
+    rollback_error_code: str = ""
 
 
 class ExecutionRun(StrictModel):
@@ -718,6 +790,8 @@ class ExecutionRun(StrictModel):
     summary: dict[str, int] = Field(default_factory=dict)
     created_at: str = ""
     updated_at: str = ""
+    completed_at: str = ""
+    rollback_available: bool = False
 
 
 class ExecuteResponse(StrictModel):
@@ -734,6 +808,8 @@ class RunSummary(StrictModel):
     status: str = ""
     state: RunState | str = ""
     summary: dict[str, int]
+    completed_at: str = ""
+    rollback_available: bool = False
 
 
 class RollbackResult(StrictModel):
