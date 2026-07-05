@@ -6,7 +6,7 @@ def test_capabilities_exposes_v070_local_workflow_flags(client) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["version"] == "0.7.2"
+    assert body["version"] == "0.7.4"
     assert body["capabilities"]["beta_ux_polish"] is True
     assert body["capabilities"]["diagnostics_panel"] is True
     assert body["capabilities"]["first_run_helper"] is True
@@ -15,6 +15,7 @@ def test_capabilities_exposes_v070_local_workflow_flags(client) -> None:
     assert body["capabilities"]["ui_explanation_coverage"] is True
     assert body["capabilities"]["diagnostics_summary"] is True
     assert body["capabilities"]["quarantine_reason_explanations"] is True
+    assert body["capabilities"]["configurable_quarantine_dir"] is True
     assert body["capabilities"]["legacy_execute_disabled"] is True
     assert body["capabilities"]["legacy_llm_suggest_disabled"] is True
     assert body["capabilities"]["run_detail"] is True
@@ -24,6 +25,12 @@ def test_capabilities_exposes_v070_local_workflow_flags(client) -> None:
     assert body["capabilities"]["execution_report"] is True
     assert body["capabilities"]["ui_polish_072"] is True
     assert body["capabilities"]["icon_system"] is True
+    assert body["capabilities"]["tabler_icon_subset"] is True
+    assert body["capabilities"]["icon_registry"] is True
+    assert body["capabilities"]["two_pane_review_layout"] is True
+    assert body["capabilities"]["settings_subnav"] is True
+    assert body["capabilities"]["compact_table"] is True
+    assert body["capabilities"]["ui_design_system_doc"] is True
     assert body["capabilities"]["toast_feedback"] is True
     assert body["capabilities"]["detail_drawer"] is True
     assert body["capabilities"]["responsive_table"] is True

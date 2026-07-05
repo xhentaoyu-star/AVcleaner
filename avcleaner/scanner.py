@@ -9,6 +9,7 @@ from .models import ScanItem, ScanRequest, ScanResponse
 from .paths import normalize_extension
 
 QUARANTINE_DIR_NAME = ".avcleaner_quarantine"
+RUNTIME_QUARANTINE_DIR_NAME = "quarantine"
 
 
 def file_id(path: str | Path) -> str:
@@ -37,6 +38,7 @@ def scan_files(request: ScanRequest) -> ScanResponse:
 
     exclude_dirs = {name.lower() for name in (request.exclude_dirs or [])}
     exclude_dirs.add(QUARANTINE_DIR_NAME)
+    exclude_dirs.add(RUNTIME_QUARANTINE_DIR_NAME)
     files: list[ScanItem] = []
     skipped_dirs: list[str] = []
 
@@ -90,4 +92,3 @@ def scan_files(request: ScanRequest) -> ScanResponse:
         total_files=len(files),
         skipped_dirs=sorted(set(skipped_dirs)),
     )
-

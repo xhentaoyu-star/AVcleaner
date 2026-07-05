@@ -9,7 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_readme_mentions_v070_workflow_and_safety_boundaries() -> None:
     text = (ROOT / "README.md").read_text(encoding="utf-8")
 
-    assert "Current version: `0.7.2`" in text
+    assert "Current version: `0.7.4`" in text
+    assert "Tabler Icons" in text
+    assert "Two-pane review workbench" in text
+    assert "Settings subnav" in text
     assert "Local daily workflow" in text
     assert "隔离不是永久删除" in text
     assert "阻止" in text

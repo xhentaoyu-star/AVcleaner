@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import re
+import json
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 ICONS = ROOT / "avcleaner" / "static" / "icons.svg"
+REGISTRY = ROOT / "avcleaner" / "static" / "icon_registry.json"
 INDEX_HTML = ROOT / "avcleaner" / "templates" / "index.html"
 APP_JS = ROOT / "avcleaner" / "static" / "app.js"
 
@@ -13,9 +15,11 @@ APP_JS = ROOT / "avcleaner" / "static" / "app.js"
 REQUIRED_ICONS = {
     "folder",
     "analyze",
+    "rule-preview",
     "ai",
     "refresh",
     "check",
+    "safe-select",
     "clear",
     "export-json",
     "export-csv",
@@ -45,8 +49,10 @@ REQUIRED_ICONS = {
 
 def test_icon_registry_contains_required_symbols() -> None:
     text = ICONS.read_text(encoding="utf-8")
+    registry = {entry["symbol"] for entry in json.loads(REGISTRY.read_text(encoding="utf-8"))}
 
     for icon_name in sorted(REQUIRED_ICONS):
+        assert icon_name in registry
         assert f'id="icon-{icon_name}"' in text
 
 

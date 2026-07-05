@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "0.7.2",
+  [string]$Version = "0.7.4",
   [string]$DistPath = "",
   [string]$ReleaseDir = "",
   [switch]$Build,

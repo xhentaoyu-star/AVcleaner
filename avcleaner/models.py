@@ -206,6 +206,7 @@ class LLMSettings(StrictModel):
 class AppSettings(StrictModel):
     schema_version: int = 3
     first_run_seen: bool = False
+    quarantine_dir: str = ""
     video_extensions: list[str] = Field(default_factory=lambda: sorted(VIDEO_EXTENSIONS))
     sidecar_extensions: list[str] = Field(default_factory=lambda: sorted(SIDECAR_EXTENSIONS))
     exclude_dirs: list[str] = Field(default_factory=list)
@@ -226,6 +227,14 @@ class AppSettings(StrictModel):
                 ext = f".{ext}"
             result.append(ext)
         return sorted(set(result))
+
+    @field_validator("quarantine_dir")
+    @classmethod
+    def validate_quarantine_dir(cls, value: str) -> str:
+        cleaned = str(value or "").strip()
+        if "\x00" in cleaned or any(ord(char) < 32 for char in cleaned):
+            raise _settings_error("settings_invalid_quarantine_dir")
+        return cleaned
 
 
 class FileSnapshot(StrictModel):

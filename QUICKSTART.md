@@ -1,4 +1,4 @@
-# AVcleaner v0.7.2 快速开始
+# AVcleaner v0.7.4 快速开始
 
 AVcleaner 是本机文件名预览和安全改名工具。扫描、规则预览、AI 智能预览都不会改动文件。只有点击“执行选中”并确认后，文件才会被改名或隔离。
 
@@ -17,11 +17,13 @@ AVcleaner 是本机文件名预览和安全改名工具。扫描、规则预览�
 9. 需要恢复时，先在历史详情里做回滚预览，再执行回滚。
 10. 需要留档时导出运行报告 JSON/CSV。
 
-## v0.7.2 界面反馈
+## v0.7.4 界面反馈
 
+- 图标改为本地 vendored Tabler regular outline 子集，不从 CDN 加载。
 - 次要操作改成带提示的图标按钮，主操作仍保留清楚文字。
 - 分析、AI 回退、校验、手动编辑、导出、执行、回滚和设置保存都会显示即时状态。
-- 预览表格使用固定列宽和内部滚动，长内容会省略；完整内容放在详情抽屉。
+- 预览区改成左侧紧凑表格、右侧详情面板；长内容会省略，完整内容放在详情面板。
+- 设置页改成 LLM / 规则 / 导入导出 / 诊断 子导航。
 - 这些界面改动只影响本地使用体验，不改变 `plan_hash`、后端校验、执行确认或回滚安全规则。
 
 ## AI 智能预览
@@ -36,7 +38,7 @@ AVcleaner 是本机文件名预览和安全改名工具。扫描、规则预览�
 
 ## 分段后缀
 
-v0.7.2 会保留这些后缀：
+v0.7.4 会保留这些后缀：
 
 - `FSVSS-004-A.mp4` -> `FSVSS-004-A.mp4`
 - `FSVSS004-b.mp4` -> `FSVSS-004-B.mp4`
@@ -45,6 +47,6 @@ v0.7.2 会保留这些后缀：
 
 ## 便携版
 
-解压 `AVcleaner-v0.7.2-portable-win-x64.zip` 后运行 `AVcleaner.exe`。有 `portable.flag` 时，数据保存在程序旁边的 `data`、`logs`、`quarantine`。没有便携标记时，Windows 默认使用 `%LOCALAPPDATA%\AVcleaner`。
+解压 `AVcleaner-v0.7.4-portable-win-x64.zip` 后运行 `AVcleaner.exe`。有 `portable.flag` 时，数据保存在程序旁边的 `data`、`logs`、`quarantine`。没有便携标记时，Windows 默认使用 `%LOCALAPPDATA%\AVcleaner`。
 
 AVcleaner 不做刮削、封面下载、NFO 生成、最终媒体库移动、演员/片商/分类整理，也不接 OpenAver 数据库。

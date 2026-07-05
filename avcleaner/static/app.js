@@ -6,6 +6,7 @@ const state = {
   plan: null,
   llmSuggestions: [],
   previewMode: "rule",
+  settingsTab: "llm",
   filter: "all",
   runFilter: "all",
   loading: "",
@@ -23,7 +24,7 @@ const state = {
   recentFolders: [],
 };
 
-const PLAN_TABLE_COLS = 8;
+const PLAN_TABLE_COLS = 7;
 const $ = (selector) => document.querySelector(selector);
 const apiToken = document.querySelector('meta[name="avcleaner-token"]')?.content || "";
 const FEEDBACK_TYPES = new Set(["info", "success", "warning", "error", "loading"]);
@@ -1181,7 +1182,7 @@ function statusBadges(item) {
 
 function renderIssueSummary(item) {
   const wrap = document.createElement("div");
-  wrap.className = "badge-row compact-badges two-line";
+  wrap.className = "badge-row compact-badges review-summary two-line";
   const codes = issueCodes(item);
   if (!codes.length) {
     wrap.append(badge("可处理", "ok", "info"));
@@ -1335,67 +1336,6 @@ function previewSource(item) {
   return "rule";
 }
 
-function cellLlmSuggestion(item) {
-  const td = document.createElement("td");
-  td.className = "ai-col";
-  const wrap = document.createElement("div");
-  wrap.className = "badge-row compact-badges two-line";
-  const source = previewSource(item);
-  const sourceVariant = source === "llm" || source === "manual" ? "info" : source === "rule_fallback" ? "warn" : "muted";
-  wrap.append(badge(SOURCE_LABELS[source] || source, source, sourceVariant));
-  if (item.llm_state && item.llm_state !== "hidden" && item.llm_state !== "not_requested") {
-    const stateLabel = LLM_STATE_LABELS[item.llm_state] || friendlyCode(item.llm_state);
-    if (stateLabel && stateLabel !== (SOURCE_LABELS[source] || source)) {
-      wrap.append(badge(stateLabel, item.llm_state, item.llm_state === "applied_to_preview" ? "info" : "warn"));
-    }
-  }
-  if (item.llm_error_code) {
-    const error = document.createElement("div");
-    error.className = "inline-error";
-    error.textContent = friendlyCode(item.llm_error_code);
-    error.title = `code: ${item.llm_error_code}`;
-    wrap.append(error);
-  }
-  td.append(wrap);
-  return td;
-}
-
-function detailRow(item) {
-  const row = document.createElement("tr");
-  row.className = "detail-row";
-  const td = document.createElement("td");
-  td.colSpan = PLAN_TABLE_COLS;
-  const grid = document.createElement("div");
-  grid.className = "detail-grid";
-
-  const fileDetails = document.createElement("div");
-  fileDetails.className = "detail-list";
-  fileDetails.append(
-    detailLine("相对路径", item.relative_path || item.source_rel_path || item.original_name),
-    detailLine("识别番号", item.media_code || item.associated_media_code || "-"),
-    detailLine("来源", SOURCE_LABELS[previewSource(item)] || friendlySource(item.source || item.suggestion_source) || "-"),
-    detailLine("置信度", Number(item.confidence || 0).toFixed(2))
-  );
-  if (item.llm_suggested_name || item.llm_state || item.llm_error_code) {
-    fileDetails.append(
-      detailLine("AI 状态", LLM_STATE_LABELS[item.llm_state] || item.llm_state || "-"),
-      detailLine("AI 建议", item.llm_suggested_name || "-"),
-      detailLine("AI 原因", item.llm_reason || "-"),
-      detailLine("AI 稳定码", [...new Set([...(item.llm_validation_codes || []), item.llm_error_code].filter(Boolean))].join("；") || "-")
-    );
-  }
-
-  grid.append(
-    detailSection("文件", fileDetails),
-    detailSection("问题与复核", renderIssueList(item)),
-    detailSection("关联文件", renderSidecarDetails(item)),
-    detailSection("Trace", renderTraceList(item))
-  );
-  td.append(grid);
-  row.append(td);
-  return row;
-}
-
 function openDetailDrawer(itemId) {
   state.detailItemId = itemId || "";
   renderPlan();
@@ -1404,7 +1344,10 @@ function openDetailDrawer(itemId) {
 function closeDetailDrawer() {
   state.detailItemId = "";
   renderDetailDrawer();
-  for (const row of document.querySelectorAll("#planBody tr")) row.classList.remove("selected-row");
+  for (const row of document.querySelectorAll("#planBody tr")) {
+    row.classList.remove("selected-row");
+    row.setAttribute("aria-selected", "false");
+  }
 }
 
 function renderDetailDrawer() {
@@ -1412,10 +1355,10 @@ function renderDetailDrawer() {
   const body = $("#detailDrawerBody");
   if (!panel || !body) return;
   const item = (state.plan?.items || []).find((candidate) => candidate.id === state.detailItemId);
-  panel.hidden = !item;
   body.innerHTML = "";
   if (!item) {
-    setText("#detailDrawerTitle", "-");
+    setText("#detailDrawerTitle", "未选择项目");
+    body.append(emptyStateNode("未选择项目", "点击左侧表格中的一行查看完整路径、问题代码、Trace、AI 细节和 Debug 信息。", "details"));
     return;
   }
   setText("#detailDrawerTitle", item.original_name || item.id);
@@ -1501,18 +1444,29 @@ async function saveManualEdit(item, nameInput, previousValue) {
   }
 }
 
+function emptyStateNode(title, body = "", iconName = "empty") {
+  const wrap = document.createElement("div");
+  wrap.className = "empty-state";
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("class", "icon");
+  icon.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", `/static/icons.svg#icon-${iconName}`);
+  icon.append(use);
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+  const text = document.createElement("span");
+  text.textContent = body;
+  wrap.append(icon, heading, text);
+  return wrap;
+}
+
 function emptyRow(title, body = "") {
   const row = document.createElement("tr");
   row.className = "empty-row";
   const td = document.createElement("td");
   td.colSpan = PLAN_TABLE_COLS;
-  const wrap = document.createElement("div");
-  wrap.className = "empty-state";
-  const heading = document.createElement("strong");
-  heading.textContent = title;
-  const text = document.createElement("span");
-  text.textContent = body;
-  wrap.append(heading, text);
+  const wrap = emptyStateNode(title, body);
   td.append(wrap);
   row.append(td);
   return row;
@@ -1539,6 +1493,18 @@ function renderPlan() {
       const row = document.createElement("tr");
       row.dataset.id = item.id;
       row.className = state.detailItemId === item.id ? "selected-row" : "";
+      row.tabIndex = 0;
+      row.setAttribute("aria-selected", state.detailItemId === item.id ? "true" : "false");
+      row.addEventListener("click", (event) => {
+        if (event.target.closest("input, button, select, textarea, label, a")) return;
+        openDetailDrawer(item.id);
+      });
+      row.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          openDetailDrawer(item.id);
+        }
+      });
 
       const checked = document.createElement("input");
       checked.type = "checkbox";
@@ -1546,6 +1512,7 @@ function renderPlan() {
       checked.disabled = !executableAction(item) || hasBlocking(item) || item.selection_locked || busyAny();
       const lockReason = item.selection_reason || (hasBlocking(item) ? "blocking" : "");
       if (checked.disabled && lockReason) checked.title = `${friendlyCode(lockReason)} | code: ${lockReason}`;
+      checked.addEventListener("click", (event) => event.stopPropagation());
       checked.addEventListener("change", () => {
         state.executionSummary = null;
         updateSelection(checked.checked ? "add" : "remove", [item.id]).catch((error) => {
@@ -1560,8 +1527,10 @@ function renderPlan() {
       nameInput.disabled = item.action === "quarantine" || item.action === "keep" || busyAny() || Boolean(state.rowSaving[item.id]);
       if (state.rowSaving[item.id]) nameInput.classList.add("is-saving");
       const previousValue = nameInput.value;
+      nameInput.addEventListener("click", (event) => event.stopPropagation());
       nameInput.addEventListener("change", () => saveManualEdit(item, nameInput, previousValue));
       nameInput.addEventListener("keydown", (event) => {
+        event.stopPropagation();
         if (event.key === "Enter") {
           event.preventDefault();
           nameInput.blur();
@@ -1570,7 +1539,8 @@ function renderPlan() {
 
       const detailButton = iconButton("details", state.detailItemId === item.id ? "关闭详情" : "查看详情");
       detailButton.disabled = busyAny();
-      detailButton.addEventListener("click", () => {
+      detailButton.addEventListener("click", (event) => {
+        event.stopPropagation();
         if (state.detailItemId === item.id) {
           closeDetailDrawer();
         } else {
@@ -1581,13 +1551,7 @@ function renderPlan() {
       const original = document.createElement("div");
       original.className = "file-cell";
       original.append(truncateText(item.original_name, "file-name truncate"));
-      if (item.relative_path || item.source_rel_path) {
-        const rel = document.createElement("div");
-        rel.className = "muted truncate";
-        rel.textContent = item.relative_path || item.source_rel_path;
-        rel.title = item.relative_path || item.source_rel_path;
-        original.append(rel);
-      }
+      original.title = item.relative_path || item.source_rel_path || item.original_name || "";
 
       const targetWrap = document.createElement("div");
       targetWrap.className = "target-editor";
@@ -1606,7 +1570,6 @@ function renderPlan() {
         cell(targetWrap, "target-col"),
         cell(badge(SOURCE_LABELS[previewSource(item)] || previewSource(item), previewSource(item), previewSource(item) === "rule_fallback" ? "warn" : "info"), "source-col"),
         cell(renderIssueSummary(item), "badge-col"),
-        cellLlmSuggestion(item),
         cell(detailButton, "detail-col")
       );
       body.append(row);
@@ -1699,6 +1662,8 @@ function setTextareaLines(selector, values) {
 
 function syncRuleFormFromSettings() {
   const rules = state.settings.rules || {};
+  const quarantineInput = $("#quarantineDir");
+  if (quarantineInput) quarantineInput.value = state.settings.quarantine_dir || "";
   $("#ruleOutputTemplate").value = rules.output_template || "{code}{part}{variant}{language}{ext}";
   setTextareaLines("#ruleRemoveAdDomains", rules.remove_ad_domains || []);
   setTextareaLines("#ruleRemoveNoiseTokens", rules.remove_noise_tokens || []);
@@ -1710,6 +1675,8 @@ function syncRuleFormFromSettings() {
 
 function syncRuleFormToSettings() {
   state.settings.rules = state.settings.rules || {};
+  const quarantineInput = $("#quarantineDir");
+  state.settings.quarantine_dir = quarantineInput ? quarantineInput.value.trim() : "";
   state.settings.rules.output_template = $("#ruleOutputTemplate").value.trim() || "{code}{part}{variant}{language}{ext}";
   state.settings.rules.remove_ad_domains = linesFromTextarea("#ruleRemoveAdDomains");
   state.settings.rules.remove_noise_tokens = linesFromTextarea("#ruleRemoveNoiseTokens");
@@ -1731,7 +1698,7 @@ function updateLlmModeHelp() {
 function renderFirstRunHelper() {
   const helper = $("#firstRunHelper");
   if (!helper) return;
-  helper.hidden = Boolean(state.settings?.first_run_seen);
+  helper.hidden = Boolean(state.settings?.first_run_seen || state.scan || state.plan);
 }
 
 function boolLabel(value) {
@@ -1848,6 +1815,28 @@ async function loadSettings() {
   renderPreviewModeControls();
 }
 
+async function persistSettingsFromForm({ showSuccess = true } = {}) {
+  syncRuleFormToSettings();
+  state.settings.llm.provider = $("#llmProvider").value;
+  state.settings.llm.compatibility_mode = $("#llmCompatibilityMode").value;
+  state.settings.llm.base_url = $("#llmBaseUrl").value;
+  state.settings.llm.model = $("#llmModel").value;
+  state.settings.llm.api_key = $("#llmApiKey").value;
+  state.settings.llm.send_full_path = $("#llmSendPath").checked;
+  state.settings = await api("/api/settings", {
+    method: "PUT",
+    body: JSON.stringify(state.settings),
+  });
+  $("#llmApiKey").value = "";
+  renderFirstRunHelper();
+  renderPreviewModeControls();
+  if (showSuccess) {
+    toast("设置已保存", "success");
+    setStatus("设置已保存", "success");
+  }
+  return state.settings;
+}
+
 async function saveSettings() {
   if (isBusy("validating")) return;
   setBusy("validating", true);
@@ -1855,33 +1844,25 @@ async function saveSettings() {
   showFeedback("保存设置中", { type: "loading" });
   setStatus("保存设置中", "loading");
   try {
-    syncRuleFormToSettings();
-    state.settings.llm.provider = $("#llmProvider").value;
-    state.settings.llm.compatibility_mode = $("#llmCompatibilityMode").value;
-    state.settings.llm.base_url = $("#llmBaseUrl").value;
-    state.settings.llm.model = $("#llmModel").value;
-    state.settings.llm.api_key = $("#llmApiKey").value;
-    state.settings.llm.send_full_path = $("#llmSendPath").checked;
-    state.settings = await api("/api/settings", {
-      method: "PUT",
-      body: JSON.stringify(state.settings),
-    });
-    $("#llmApiKey").value = "";
-    renderFirstRunHelper();
-    toast("设置已保存", "success");
-    setStatus("设置已保存", "success");
+    await persistSettingsFromForm();
   } finally {
     setBusy("validating", false);
     setLoading("");
   }
 }
-
 async function testLlm() {
-  if (isBusy("requestingAi")) return;
-  setBusy("requestingAi", true);
-  setLoading("llm");
-  showFeedback("LLM 测试中", { type: "loading" });
+  if (isBusy("requestingAi") || isBusy("validating")) return;
+  setBusy("validating", true);
+  setLoading("settings");
+  showFeedback("保存 LLM 设置中", { type: "loading" });
+  setStatus("保存 LLM 设置中", "loading");
   try {
+    await persistSettingsFromForm({ showSuccess: false });
+    setBusy("validating", false);
+    setBusy("requestingAi", true);
+    setLoading("llm");
+    showFeedback("LLM 测试中", { type: "loading" });
+    setStatus("LLM 测试中", "loading");
     const response = await api("/api/llm/test", {
       method: "POST",
       body: JSON.stringify({}),
@@ -1891,11 +1872,11 @@ async function testLlm() {
     toast(response.ok ? "LLM 测试完成" : "LLM 测试失败", response.ok ? "success" : "warning");
     setStatus(response.ok ? "LLM 测试完成" : "LLM 测试失败", response.ok ? "success" : "warning");
   } finally {
+    setBusy("validating", false);
     setBusy("requestingAi", false);
     setLoading("");
   }
 }
-
 async function testRules() {
   const filename = $("#ruleTestFilename").value.trim();
   if (!filename) {
@@ -2072,6 +2053,7 @@ async function analyze() {
     setBusy("analyzing", false);
     if (mode === "ai") setBusy("requestingAi", false);
     setLoading("");
+    renderPlan();
   }
 }
 
@@ -2734,9 +2716,9 @@ async function copyDiagnostics() {
 }
 
 function setupTabs() {
-  for (const button of document.querySelectorAll("nav button")) {
+  for (const button of document.querySelectorAll(".nav-tabs button[data-tab]")) {
     button.addEventListener("click", () => {
-      for (const item of document.querySelectorAll("nav button")) item.classList.remove("active");
+      for (const item of document.querySelectorAll(".nav-tabs button[data-tab]")) item.classList.remove("active");
       for (const panel of document.querySelectorAll(".panel")) panel.classList.remove("active");
       button.classList.add("active");
       document.querySelector(`[data-panel="${button.dataset.tab}"]`).classList.add("active");
@@ -2745,6 +2727,25 @@ function setupTabs() {
       }
     });
   }
+}
+
+function setupSettingsTabs() {
+  const buttons = document.querySelectorAll("[data-settings-tab]");
+  const panels = document.querySelectorAll("[data-settings-panel]");
+  const activate = (tab) => {
+    state.settingsTab = tab || "llm";
+    for (const button of buttons) {
+      button.classList.toggle("active", button.dataset.settingsTab === state.settingsTab);
+      button.setAttribute("aria-pressed", button.dataset.settingsTab === state.settingsTab ? "true" : "false");
+    }
+    for (const panel of panels) {
+      panel.hidden = panel.dataset.settingsPanel !== state.settingsTab;
+    }
+  };
+  for (const button of buttons) {
+    button.addEventListener("click", () => activate(button.dataset.settingsTab));
+  }
+  activate(state.settingsTab);
 }
 
 function setupReviewControls() {
@@ -2768,6 +2769,7 @@ function bindClick(selector, handler) {
 
 document.addEventListener("DOMContentLoaded", async () => {
   setupTabs();
+  setupSettingsTabs();
   setupReviewControls();
   $("#filterSelect")?.addEventListener("change", () => {
     state.filter = $("#filterSelect").value;

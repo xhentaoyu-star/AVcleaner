@@ -22,6 +22,21 @@ def test_llm_test_ui_has_readable_summary_fields() -> None:
         assert field in text
 
 
+def test_llm_test_saves_settings_before_testing() -> None:
+    text = APP_JS.read_text(encoding="utf-8")
+    assert "function persistSettingsFromForm" in text
+
+    test_start = text.index("async function testLlm")
+    test_body = text[test_start : text.index("async function testRules", test_start)]
+    save_call = test_body.index("await persistSettingsFromForm({ showSuccess: false })")
+    test_call = test_body.index('api("/api/llm/test"')
+
+    assert save_call < test_call
+    assert 'method: "PUT"' in text[text.index("function persistSettingsFromForm") : test_start]
+    assert 'setBusy("validating", true)' in test_body
+    assert 'setBusy("requestingAi", true)' in test_body
+
+
 def test_llm_test_failure_keeps_stable_code_and_omits_secrets(client, auth_headers: dict[str, str]) -> None:
     response = client.post("/api/llm/test", headers=auth_headers, json={})
 

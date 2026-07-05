@@ -21,6 +21,18 @@ def test_analyze_clears_stale_preview_while_request_is_running() -> None:
     assert "state.plan = previousPlan" in analyze_body
 
 
+def test_analyze_renders_preview_after_loading_state_clears() -> None:
+    text = APP_JS.read_text(encoding="utf-8")
+    analyze_start = text.index("async function analyze")
+    analyze_body = text[analyze_start : text.index("async function scan", analyze_start)]
+    finally_start = analyze_body.index("finally")
+    finally_body = analyze_body[finally_start:]
+
+    assert 'setBusy("analyzing", false)' in finally_body
+    assert 'setLoading("");' in finally_body
+    assert 'setLoading("");\n    renderPlan();' in finally_body
+
+
 def test_ai_analyze_fallback_is_visible() -> None:
     text = APP_JS.read_text(encoding="utf-8")
 

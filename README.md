@@ -2,16 +2,21 @@
 
 AVcleaner is a local Windows desktop-style app for safely cleaning downloaded media filenames before they enter a media library. It focuses on local preview, manual review, execution history, rollback, and reports.
 
-Current version: `0.7.2`.
+Current version: `0.7.4`.
 
 AVcleaner intentionally does not scrape metadata, download covers, generate NFO files, move files into a final media library, organize actor/studio/category folders, or integrate with OpenAver databases.
 
-## What v0.7.2 Adds
+## What v0.7.4 Adds
 
-- Cleaner icon-based UI using a local SVG icon system. No CDN, no external icon dependency, and secondary actions use compact accessible icon buttons.
+- Cleaner icon-based UI using a minimal vendored Tabler Icons regular outline subset. No CDN, no external icon dependency, and secondary actions use compact accessible icon buttons.
+- Reproducible icon registry and sprite generation with `tools/build_icon_sprite.py --check`.
+- Two-pane review workbench: compact table on the left, full detail/debug panel on the right.
+- Settings subnav for LLM, rules, import/export, and diagnostics instead of four equal-weight panels.
+- Configurable local quarantine folder. The default quarantine location is AVcleaner's own runtime `quarantine` directory, not the selected source folder.
+- Short technical IDs in the main status strip, with full values still available in tooltips/detail context.
 - Immediate local feedback for analysis, AI preview fallback, validation, manual edits, exports, execution, rollback, settings, LLM tests, and diagnostics.
 - Responsive preview table with stable columns, sticky header, truncated summaries, compact badges, and internal scrolling instead of page overflow.
-- Detail drawer for full item context: original path, final name, action/source, issue codes, trace, sidecar metadata, LLM details, and debug JSON.
+- Detail panel for full item context: original path, final name, action/source, issue codes, trace, sidecar metadata, LLM details, and debug JSON.
 - Unified analysis workflow: choose a folder, choose preview mode, analyze once, review/edit final names, then execute selected.
 - Rule Preview mode for deterministic local rules.
 - AI Smart Preview mode when LLM is configured. If LLM is not configured, the AI mode is hidden from the main workflow.
@@ -42,6 +47,7 @@ AI mode is preview-only. Invalid AI suggestions fall back to the rule result and
 - Execution requires persisted `plan_id`, matching `plan_hash`, selected item ids, and explicit `confirm: true`.
 - Execution never trusts frontend-supplied file paths.
 - Existing files are never overwritten.
+- New quarantined files are stored under AVcleaner's runtime quarantine folder by default, or under the custom quarantine folder configured in Settings.
 - Rollback never overwrites restore targets.
 - LLM endpoints never execute files and never bypass Pydantic/schema/validator checks.
 - Cloud LLM payloads send filenames only by default, not full paths.
@@ -53,6 +59,7 @@ AI mode is preview-only. Invalid AI suggestions fall back to the rule result and
 
 - Source/AppData mode stores data under `%LOCALAPPDATA%\AVcleaner` unless `AVCLEANER_DATA_DIR` overrides it.
 - Portable mode is enabled by `--portable` or a `portable.flag` next to the executable. Data is stored beside the executable under `data`, `logs`, and `quarantine`.
+- The quarantine folder can be changed in Settings > Rules. Leave it empty to use the default AVcleaner `quarantine` directory. AVcleaner no longer creates a new quarantine folder inside the selected source folder for new executions.
 - Diagnostics redact local media paths and secrets. Recent folders and folder-picker state are local workflow data and are not included in settings export by default.
 
 ## Quick Start
@@ -82,9 +89,9 @@ This machine may have more than one Python installation. Use the project venv co
 
 ## Local daily workflow
 
-The v0.7.2 local daily workflow is the same workflow described above: choose a folder, choose Rule Preview or AI Smart Preview, generate one validated preview, review/edit final names, execute selected items, then inspect reports or rollback from History.
+The v0.7.4 local daily workflow is the same workflow described above: choose a folder, choose Rule Preview or AI Smart Preview, generate one validated preview, review/edit final names, execute selected items, then inspect reports or rollback from History.
 
-The v0.7.2 UI polish is local-only: icon buttons, toast/status feedback, responsive table columns, and the detail drawer do not change execution rules or LLM safety. The backend remains authoritative for validation, selection, `plan_hash`, execution, and rollback.
+The v0.7.4 UI polish is local-only: Tabler outline icons, toast/status feedback, compact table rows, and the two-pane detail panel do not change execution rules or LLM safety. The backend remains authoritative for validation, selection, `plan_hash`, execution, and rollback.
 
 UI labels keep the important safety words visible: 阻止 means the item cannot execute, 警告 means review before execution, and 需复核 means the user should confirm the result before selecting it.
 
@@ -99,9 +106,9 @@ Packaging checks, when a build exists:
 .\scripts\smoke_packaged.ps1 .\dist\AVcleaner
 .\scripts\smoke_packaged.ps1 .\dist\AVcleaner -RunTempExecution
 .\packaging\create_release_zip.ps1 -SmokeTested
-.\scripts\check_artifact.ps1 .\release\AVcleaner-v0.7.2-portable-win-x64.zip
-.\scripts\smoke_release_zip.ps1 .\release\AVcleaner-v0.7.2-portable-win-x64.zip
-Get-FileHash .\release\AVcleaner-v0.7.2-portable-win-x64.zip -Algorithm SHA256
+.\scripts\check_artifact.ps1 .\release\AVcleaner-v0.7.4-portable-win-x64.zip
+.\scripts\smoke_release_zip.ps1 .\release\AVcleaner-v0.7.4-portable-win-x64.zip
+Get-FileHash .\release\AVcleaner-v0.7.4-portable-win-x64.zip -Algorithm SHA256
 ```
 
 ## API Flow

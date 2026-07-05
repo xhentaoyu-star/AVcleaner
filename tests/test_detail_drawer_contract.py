@@ -13,6 +13,7 @@ def test_detail_drawer_shell_exists() -> None:
 
     for marker in [
         "detailDrawerPanel",
+        "detail-panel detail-drawer",
         "detailDrawerTitle",
         "detailDrawerBody",
         "closeDetailDrawerBtn",
@@ -27,6 +28,8 @@ def test_detail_drawer_contains_full_debug_context() -> None:
         "function openDetailDrawer",
         "function closeDetailDrawer",
         "function renderDetailDrawer",
+        "未选择项目",
+        "emptyStateNode",
         "item_id",
         "source_rel_path",
         "target_name",

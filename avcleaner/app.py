@@ -123,6 +123,12 @@ async def validation_error_handler(_request: Request, exc: RequestValidationErro
     code = "validation_error"
     if any(error.get("type") == "extra_forbidden" for error in exc.errors()):
         code = str(IssueCode.REQUEST_EXTRA_FIELDS)
+    else:
+        for error in exc.errors():
+            error_type = str(error.get("type") or "")
+            if error_type.startswith(("rule_settings_", "settings_")):
+                code = error_type
+                break
     return JSONResponse(status_code=422, content={"error_code": code, "details": exc.errors()})
 
 
@@ -173,6 +179,7 @@ def capabilities() -> dict:
             "plan_export",
             "execution_summary",
             "quarantine",
+            "configurable_quarantine_dir",
             "execute_by_plan_id",
             "rollback",
             "rollback_preview",
@@ -189,6 +196,12 @@ def capabilities() -> dict:
             "review_info_deduplication",
             "ui_polish_072",
             "icon_system",
+            "tabler_icon_subset",
+            "icon_registry",
+            "two_pane_review_layout",
+            "settings_subnav",
+            "compact_table",
+            "ui_design_system_doc",
             "toast_feedback",
             "detail_drawer",
             "responsive_table",
@@ -253,6 +266,7 @@ def capabilities() -> dict:
             "ui_explanation_coverage": True,
             "diagnostics_summary": True,
             "quarantine_reason_explanations": True,
+            "configurable_quarantine_dir": True,
             "run_detail": True,
             "rollback_preview": True,
             "run_export": True,
@@ -268,6 +282,12 @@ def capabilities() -> dict:
             "review_info_deduplication": True,
             "ui_polish_072": True,
             "icon_system": True,
+            "tabler_icon_subset": True,
+            "icon_registry": True,
+            "two_pane_review_layout": True,
+            "settings_subnav": True,
+            "compact_table": True,
+            "ui_design_system_doc": True,
             "toast_feedback": True,
             "detail_drawer": True,
             "responsive_table": True,

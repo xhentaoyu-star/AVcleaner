@@ -30,10 +30,14 @@ def test_preview_table_keeps_review_data_available() -> None:
     text = APP_JS.read_text(encoding="utf-8")
 
     for function_name in [
-        "detailRow",
         "renderIssueList",
         "renderTraceList",
         "renderSidecarDetails",
-        "cellLlmSuggestion",
+        "renderDetailDrawer",
     ]:
         assert f"function {function_name}" in text
+
+    assert "llm_suggested_name" in text
+    assert "llm_reason" in text
+    assert "JSON.stringify(item" in text
+    assert "cellLlmSuggestion" not in text

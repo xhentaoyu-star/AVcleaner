@@ -1,7 +1,7 @@
 param(
   [Parameter(Mandatory = $true)]
   [string]$AppPath,
-  [string]$ExpectedVersion = "0.7.2",
+  [string]$ExpectedVersion = "0.7.4",
   [switch]$RunTempExecution
 )
 
@@ -69,12 +69,39 @@ function Test-PathUnder([string]$Root, [string]$PathValue) {
     $pathFull.StartsWith($rootFull + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)
 }
 
-function Assert-OperationPathsStayInScanRoot($Operations, [string]$ScanRoot) {
+function Assert-ExecutionOperationPaths($Operations, [string]$ScanRoot, [string]$AppRoot) {
+  $quarantineRoot = Join-Path $AppRoot "quarantine"
   foreach ($operation in @($Operations)) {
-    foreach ($pathValue in @($operation.source_path, $operation.target_path)) {
-      if ($pathValue -and -not (Test-PathUnder $ScanRoot $pathValue)) {
-        Write-Error "Operation path escaped temp scan root: $pathValue"
+    if ($operation.source_path -and -not (Test-PathUnder $ScanRoot $operation.source_path)) {
+      Write-Error "Execution source path escaped temp scan root: $($operation.source_path)"
+    }
+    $action = [string]$operation.action
+    if ($action -eq "quarantine") {
+      if ($operation.target_path -and (Test-PathUnder $ScanRoot $operation.target_path)) {
+        Write-Error "Quarantine target should not be under temp scan root: $($operation.target_path)"
       }
+      if ($operation.target_path -and -not (Test-PathUnder $quarantineRoot $operation.target_path)) {
+        Write-Error "Quarantine target escaped packaged quarantine root: $($operation.target_path)"
+      }
+    } elseif ($operation.target_path -and -not (Test-PathUnder $ScanRoot $operation.target_path)) {
+      Write-Error "Rename target path escaped temp scan root: $($operation.target_path)"
+    }
+  }
+}
+
+function Assert-RollbackOperationPaths($Operations, [string]$ScanRoot, [string]$AppRoot) {
+  $quarantineRoot = Join-Path $AppRoot "quarantine"
+  foreach ($operation in @($Operations)) {
+    $action = [string]$operation.action
+    if ($action -eq "quarantine") {
+      if ($operation.source_path -and -not (Test-PathUnder $quarantineRoot $operation.source_path)) {
+        Write-Error "Rollback quarantine source escaped packaged quarantine root: $($operation.source_path)"
+      }
+    } elseif ($operation.source_path -and -not (Test-PathUnder $ScanRoot $operation.source_path)) {
+      Write-Error "Rollback rename source escaped temp scan root: $($operation.source_path)"
+    }
+    if ($operation.target_path -and -not (Test-PathUnder $ScanRoot $operation.target_path)) {
+      Write-Error "Rollback target path escaped temp scan root: $($operation.target_path)"
     }
   }
 }
@@ -89,7 +116,7 @@ function Add-SmokeFiles([string]$ScanRoot, [bool]$ForExecution) {
   }
 }
 
-function Invoke-TempExecutionSmoke($Base, $Headers, $Plan, [string]$ScanRoot) {
+function Invoke-TempExecutionSmoke($Base, $Headers, $Plan, [string]$ScanRoot, [string]$AppRoot) {
   $validated = Invoke-Json POST "$Base/api/plans/$($Plan.plan_id)/validate" $Headers
   if (-not $validated.plan_hash) { Write-Error "Validate did not return plan_hash." }
 
@@ -123,7 +150,7 @@ function Invoke-TempExecutionSmoke($Base, $Headers, $Plan, [string]$ScanRoot) {
     plan_hash = $selection.plan_hash
   }
   if (-not $execution.run_id) { Write-Error "Execute did not return run_id." }
-  Assert-OperationPathsStayInScanRoot $execution.operations $ScanRoot
+  Assert-ExecutionOperationPaths $execution.operations $ScanRoot $AppRoot
 
   if (Test-Path -LiteralPath $originalVideo) { Write-Error "Original video still exists after rename execution." }
   if (-not (Test-Path -LiteralPath $renamedVideo)) { Write-Error "Renamed video missing after execution." }
@@ -132,7 +159,7 @@ function Invoke-TempExecutionSmoke($Base, $Headers, $Plan, [string]$ScanRoot) {
 
   $rollback = Invoke-Json POST "$Base/api/runs/$($execution.run_id)/rollback" $Headers
   if (-not $rollback.run_id) { Write-Error "Rollback did not return rollback run_id." }
-  Assert-OperationPathsStayInScanRoot $rollback.operations $ScanRoot
+  Assert-RollbackOperationPaths $rollback.operations $ScanRoot $AppRoot
 
   if (-not (Test-Path -LiteralPath $originalVideo)) { Write-Error "Original video was not restored after rollback." }
   if (Test-Path -LiteralPath $renamedVideo) { Write-Error "Renamed video still exists after rollback." }
@@ -202,7 +229,7 @@ try {
   if (-not $validated.plan_hash) { Write-Error "Validate did not return plan_hash." }
 
   if ($RunTempExecution) {
-    Invoke-TempExecutionSmoke $base $headers $plan $tempScan.FullName
+    Invoke-TempExecutionSmoke $base $headers $plan $tempScan.FullName $tempAppRoot
   }
 
   $completed = $true

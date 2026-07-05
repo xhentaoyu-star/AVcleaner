@@ -17,7 +17,7 @@
         </div>
         <span class="mode-chip">模式 <strong id="currentMode">-</strong></span>
       </div>
-      <nav aria-label="主导航">
+      <nav class="nav-tabs" aria-label="主导航">
         <button data-tab="workspace" class="active" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-analyze"></use></svg><span>工作台</span></button>
         <button data-tab="trash" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-quarantine"></use></svg><span>隔离</span></button>
         <button data-tab="history" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-history"></use></svg><span>历史</span></button>
@@ -25,7 +25,7 @@
       </nav>
     </header>
 
-    <main id="app">
+    <main id="app" class="app-shell">
       <section id="firstRunHelper" class="notice" hidden>
         <div>
           <h2>第一次使用</h2>
@@ -43,7 +43,7 @@
       </section>
 
       <section data-panel="workspace" class="panel active">
-        <section class="step-section workflow-section">
+        <section class="step-section workflow-section workflow-card">
           <div class="section-heading">
             <span>本地工作流</span>
             <h2>选择文件夹并生成预览</h2>
@@ -54,8 +54,8 @@
               <input id="rootPath" type="text" placeholder="L:\downloads" aria-label="文件夹路径" />
             </div>
             <button id="folderPickerBtn" class="icon-btn" type="button" title="选择文件夹" aria-label="选择文件夹"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-folder"></use></svg></button>
-            <div class="mode-toggle" role="group" aria-label="预览模式">
-              <button type="button" data-preview-mode="rule" class="active" aria-pressed="true"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-check"></use></svg><span>规则预览</span></button>
+            <div class="mode-toggle segmented-control" role="group" aria-label="预览模式">
+              <button type="button" data-preview-mode="rule" class="active" aria-pressed="true"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-rule-preview"></use></svg><span>规则预览</span></button>
               <button type="button" data-preview-mode="ai" aria-pressed="false" hidden><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-ai"></use></svg><span>AI 智能预览</span></button>
             </div>
             <button id="analyzeBtn" class="primary has-icon" type="button" title="扫描并生成预览"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-analyze"></use></svg><span>规则预览</span></button>
@@ -78,16 +78,16 @@
           </div>
         </section>
 
-        <section class="metrics" aria-label="预览摘要">
-          <button class="metric-card" data-filter="all" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-summary"></use></svg><strong id="metricFiles">0</strong><span>总文件</span></button>
-          <button class="metric-card" data-filter="all" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-edit"></use></svg><strong id="metricRename">0</strong><span>改名</span></button>
-          <button class="metric-card" data-filter="junk_candidate" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-quarantine"></use></svg><strong id="metricQuarantine">0</strong><span>隔离</span></button>
-          <button class="metric-card" data-filter="sidecar" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-copy"></use></svg><strong id="metricSidecar">0</strong><span>关联文件</span></button>
-          <button class="metric-card" data-filter="selected" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-check"></use></svg><strong id="metricSelected">0</strong><span>已选</span></button>
-          <button class="metric-card" data-filter="blocking" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-blocking"></use></svg><strong id="metricBlocking">0</strong><span>阻止</span></button>
-          <button class="metric-card" data-filter="warning" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-warning"></use></svg><strong id="metricWarning">0</strong><span>警告</span></button>
-          <button class="metric-card" data-filter="requires_review" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-review"></use></svg><strong id="metricReview">0</strong><span>需复核</span></button>
-          <button class="metric-card" data-filter="manual_edited" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-edit"></use></svg><strong id="metricManual">0</strong><span>手动修改</span></button>
+        <section class="metrics summary-grid" aria-label="预览摘要">
+          <button class="metric-card summary-card" data-filter="all" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-summary"></use></svg><strong id="metricFiles">0</strong><span>总文件</span></button>
+          <button class="metric-card summary-card" data-filter="all" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-edit"></use></svg><strong id="metricRename">0</strong><span>改名</span></button>
+          <button class="metric-card summary-card" data-filter="junk_candidate" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-quarantine"></use></svg><strong id="metricQuarantine">0</strong><span>隔离</span></button>
+          <button class="metric-card summary-card" data-filter="sidecar" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-copy"></use></svg><strong id="metricSidecar">0</strong><span>关联文件</span></button>
+          <button class="metric-card summary-card" data-filter="selected" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-safe-select"></use></svg><strong id="metricSelected">0</strong><span>已选</span></button>
+          <button class="metric-card summary-card" data-filter="blocking" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-blocking"></use></svg><strong id="metricBlocking">0</strong><span>阻止</span></button>
+          <button class="metric-card summary-card" data-filter="warning" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-warning"></use></svg><strong id="metricWarning">0</strong><span>警告</span></button>
+          <button class="metric-card summary-card" data-filter="requires_review" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-review"></use></svg><strong id="metricReview">0</strong><span>需复核</span></button>
+          <button class="metric-card summary-card" data-filter="manual_edited" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-edit"></use></svg><strong id="metricManual">0</strong><span>手动修改</span></button>
         </section>
 
         <section class="step-section">
@@ -101,15 +101,15 @@
               <span>筛选</span>
               <select id="filterSelect"></select>
             </label>
-            <button id="selectSafeBtn" class="icon-btn" type="button" title="选择安全项" aria-label="选择安全项"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-check"></use></svg></button>
+            <button id="selectSafeBtn" class="icon-btn" type="button" title="选择安全项" aria-label="选择安全项"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-safe-select"></use></svg></button>
             <button id="clearSelectionBtn" class="icon-btn" type="button" title="清空选择" aria-label="清空选择"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-clear"></use></svg></button>
             <button id="exportPlanJsonBtn" class="icon-btn" type="button" title="导出计划 JSON" aria-label="导出计划 JSON"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-export-json"></use></svg></button>
             <button id="exportPlanCsvBtn" class="icon-btn" type="button" title="导出计划 CSV" aria-label="导出计划 CSV"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-export-csv"></use></svg></button>
           </div>
 
-          <div class="preview-shell">
+          <div class="review-layout">
             <div class="table-wrap">
-              <table class="preview-table">
+              <table class="preview-table review-table">
                 <colgroup>
                   <col class="col-select" />
                   <col class="col-status" />
@@ -117,7 +117,6 @@
                   <col class="col-target" />
                   <col class="col-source" />
                   <col class="col-review" />
-                  <col class="col-ai" />
                   <col class="col-actions" />
                 </colgroup>
                 <thead>
@@ -128,14 +127,13 @@
                     <th>最终文件名</th>
                     <th>来源</th>
                     <th>复核摘要</th>
-                    <th>AI/规则状态</th>
                     <th>操作</th>
                   </tr>
                 </thead>
                 <tbody id="planBody"></tbody>
               </table>
             </div>
-            <aside id="detailDrawerPanel" class="detail-drawer" hidden aria-label="项目详情">
+            <aside id="detailDrawerPanel" class="detail-panel detail-drawer" aria-label="项目详情">
               <div class="drawer-header">
                 <div>
                   <span>项目详情</span>
@@ -278,8 +276,15 @@
         </section>
       </section>
 
-      <section data-panel="settings" class="panel settings-grid">
-        <section class="settings-section">
+      <section data-panel="settings" class="panel settings-layout">
+        <nav class="settings-subnav" aria-label="设置分类">
+          <button data-settings-tab="llm" class="active" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-ai"></use></svg><span>LLM</span></button>
+          <button data-settings-tab="rules" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-rule-preview"></use></svg><span>规则</span></button>
+          <button data-settings-tab="import-export" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-export-json"></use></svg><span>导入导出</span></button>
+          <button data-settings-tab="diagnostics" type="button"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-diagnostics"></use></svg><span>诊断</span></button>
+        </nav>
+        <div class="settings-content">
+        <section class="settings-section" data-settings-panel="llm">
           <h2>LLM 设置</h2>
           <label>
             供应商
@@ -320,7 +325,7 @@
           <pre id="llmTestResult" class="test-result"></pre>
         </section>
 
-        <section class="settings-section">
+        <section class="settings-section" data-settings-panel="rules" hidden>
           <h2>规则设置</h2>
           <label>
             输出模板
@@ -351,6 +356,11 @@
             <input id="ruleReviewThreshold" type="number" min="0" max="1" step="0.01" />
           </label>
           <label>
+            隔离文件夹
+            <input id="quarantineDir" type="text" placeholder="留空：使用 AVcleaner 默认隔离目录" />
+          </label>
+          <p class="privacy-note">留空时使用 AVcleaner 自己的 quarantine 目录，不会把隔离文件夹放进源文件夹。</p>
+          <label>
             规则测试
             <input id="ruleTestFilename" type="text" placeholder="[ad.com] FC2-PPV-1234567_1.mp4" />
           </label>
@@ -358,7 +368,7 @@
           <pre id="ruleTestResult" class="test-result"></pre>
         </section>
 
-        <section class="settings-section">
+        <section class="settings-section" data-settings-panel="import-export" hidden>
           <h2>导入/导出设置</h2>
           <button id="exportSettingsBtn" type="button">导出设置</button>
           <pre id="settingsExportResult" class="test-result"></pre>
@@ -374,7 +384,7 @@
           <pre id="settingsImportResult" class="test-result"></pre>
         </section>
 
-        <section class="settings-section">
+        <section class="settings-section" data-settings-panel="diagnostics" hidden>
           <h2>诊断</h2>
           <p class="privacy-note">诊断 JSON 会省略密钥、认证头、原始 LLM 载荷和完整媒体路径。</p>
           <div class="review-toolbar">
@@ -389,6 +399,7 @@
             <pre id="diagnosticsResult" class="test-result"></pre>
           </details>
         </section>
+        </div>
       </section>
     </main>
 

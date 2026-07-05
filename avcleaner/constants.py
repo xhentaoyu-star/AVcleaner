@@ -37,6 +37,7 @@ DEFAULT_EXCLUDE_DIRS = {
     "node_modules",
     "OpenAver",
     "prowlarr",
+    "quarantine",
     "_media_cleanup",
     "AVcleaner",
 }

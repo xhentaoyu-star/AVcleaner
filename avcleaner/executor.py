@@ -22,6 +22,7 @@ from .repository import (
     update_run_state,
     upsert_run_item,
 )
+from .settings_store import get_settings
 from .validators import has_blocking_issues
 
 
@@ -61,6 +62,7 @@ def execute_plan_by_id(plan_id: str, request: PlanExecuteRequest) -> ExecuteResp
     selected = [item for item in validated.items if item.id in requested_ids]
     if any(has_blocking_issues(item) for item in selected):
         raise AppError(IssueCode.BLOCKING_ITEM_SELECTED, 400)
+    settings = get_settings()
     run_id = new_id("run")
     run = create_run(
         ExecutionRun(
@@ -89,7 +91,7 @@ def execute_plan_by_id(plan_id: str, request: PlanExecuteRequest) -> ExecuteResp
             if item.action == Operation.RENAME:
                 run_item = _execute_rename_item(run_item, item)
             elif item.action == Operation.QUARANTINE:
-                run_item = _execute_quarantine_item(run_item, Path(validated.root_path), item)
+                run_item = _execute_quarantine_item(run_item, Path(validated.root_path), item, settings.quarantine_dir)
             else:
                 run_item = upsert_run_item(run_item.model_copy(update={"state": RunItemState.SKIPPED, "message": "not_executable"}))
         except Exception:
@@ -130,11 +132,11 @@ def _execute_rename_item(run_item: ExecutionItem, item) -> ExecutionItem:
     return upsert_run_item(run_item.model_copy(update={"state": RunItemState.RENAMED, "message": "renamed", "target_path": str(target)}))
 
 
-def _execute_quarantine_item(run_item: ExecutionItem, scan_root: Path, item) -> ExecutionItem:
+def _execute_quarantine_item(run_item: ExecutionItem, scan_root: Path, item, quarantine_dir: str = "") -> ExecutionItem:
     source = Path(item.source_path).resolve(strict=False)
     if not source.exists():
         return upsert_run_item(run_item.model_copy(update={"state": RunItemState.FAILED, "message": "source_missing", "issue_code": IssueCode.SOURCE_MISSING}))
-    target, _manifest = quarantine_item(run_item.run_id, scan_root, item)
+    target, _manifest = quarantine_item(run_item.run_id, scan_root, item, quarantine_dir)
     return upsert_run_item(
         run_item.model_copy(update={"state": RunItemState.QUARANTINED, "message": "quarantined", "target_path": str(target)})
     )
