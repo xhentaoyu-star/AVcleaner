@@ -1,161 +1,163 @@
 # AVcleaner
 
-AVcleaner is a local Windows desktop-style app for safely cleaning downloaded media filenames before they enter a media library. It focuses on local preview, manual review, execution history, rollback, and reports.
+AVcleaner 是一个面向 Windows 的本地文件清理工具，主要用来处理 BT 下载目录里的脏文件和混乱文件名。
 
-Current version: `0.8.0`.
+它的目标很明确：在影片进入你的媒体库、播放器目录或整理目录之前，先把下载包里常见的广告文件、快捷方式、残留说明、可疑小文件、乱糟糟的命名和关联字幕文件整理干净。AVcleaner 不会替你刮削元数据，也不会下载封面、生成 NFO、搬运到最终媒体库；它只专注于“下载目录清理”和“安全改名预览”。
 
-AVcleaner intentionally does not scrape metadata, download covers, generate NFO files, move files into a final media library, organize actor/studio/category folders, or integrate with OpenAver databases.
+## 适合用来解决什么问题
 
-## What v0.8.0 Adds
+BT 下载目录里经常会出现这些东西：
 
-- Default workbench mode is now a simple daily-use view. Scan ID, Plan ID, full hash, raw JSON, Trace, endpoint flags, runtime diagnostics, and internal IDs stay out of the visible workflow.
-- Advanced diagnostics remain available through the hidden local shortcut `Ctrl+Shift+D`. This local UI state is not exported in settings and is not sent to LLM providers.
-- First-use safety help is now a compact one-line safety bar with expandable details instead of a large block.
-- Summary cards use progressive disclosure: total files, rename, quarantine, selected, and blocking stay visible; warning, review, manual edit, and sidecar cards appear only when relevant in simple mode.
-- The execution report appears only after an execution starts or completes. Empty run_id/status/result boxes are no longer shown before execution.
-- Settings show human summaries first. Raw LLM test JSON, settings import/export JSON, capability flags, and diagnostics JSON are collapsed under advanced/debug sections.
+- 文件名带站点广告、发布组水印、无意义前后缀。
+- 同一个番号有正片、字幕、预览图、说明文件、快捷方式、下载器残留文件混在一起。
+- `.url`、`.website`、`.txt`、`.nfo`、小体积垃圾文件等不该进媒体库的文件。
+- 字幕、分段、版本标记和正片之间有关联，但手工整理容易漏掉。
+- 批量改名风险高，一旦覆盖、误删或移动错目录，恢复麻烦。
 
-## What v0.7.5 Added
+AVcleaner 的做法是：先扫描、先生成预览、先让你复核，最后才执行。执行后也会留下历史记录和回滚入口。
 
-- Fixed-resolution desktop workbench layout optimized for 1440 x 900, with a minimum supported viewport of 1280 x 760. Very wide screens keep the content capped instead of stretching endlessly.
-- Strong module zones: top navigation, command bar, KPI strip, compact review table, right-side detail stack, compact execution module, and bottom local-status bar.
-- Main review table now keeps long names, paths, Trace, AI details, and raw Debug data out of table cells. Short summaries stay in the table; full details live in the right panel.
-- Right-side detail stack now carries item details, optional AI review, collapsed Debug information, and quick local actions.
-- Compact execution module shows selected count, rename/quarantine/skip/warning pills, execution summary, explicit confirmation, and recent run result.
-- Cleaner icon-based UI using a minimal vendored Tabler Icons regular outline subset. No CDN, no external icon dependency, and secondary actions use compact accessible icon buttons.
-- Reproducible icon registry and sprite generation with `tools/build_icon_sprite.py --check`.
-- Two-pane review workbench: compact table on the left, full detail/debug panel on the right.
-- Settings subnav for LLM, rules, import/export, and diagnostics instead of four equal-weight panels.
-- Configurable local quarantine folder. The default quarantine location is AVcleaner's own runtime `quarantine` directory, not the selected source folder.
-- Short technical IDs in the main status strip, with full values still available in tooltips/detail context.
-- Immediate local feedback for analysis, AI preview fallback, validation, manual edits, exports, execution, rollback, settings, LLM tests, and diagnostics.
-- Responsive preview table with stable columns, sticky header, truncated summaries, compact badges, and internal scrolling instead of page overflow.
-- Detail panel for full item context: original path, final name, action/source, issue codes, trace, sidecar metadata, LLM details, and debug JSON.
-- Unified analysis workflow: choose a folder, choose preview mode, analyze once, review/edit final names, then execute selected.
-- Rule Preview mode for deterministic local rules.
-- AI Smart Preview mode when LLM is configured. If LLM is not configured, the AI mode is hidden from the main workflow.
-- AI suggestions update the preview `target_name` only after canonical schema validation and normal filename validators pass. They never execute files.
-- Final suggested filenames remain manually editable in both Rule and AI modes.
-- Native PyWebView folder picker in desktop mode, with safe browser fallback text.
-- Local last-folder memory and recent folders. Selecting a recent folder only fills the path input; it does not auto-scan.
-- Segment suffix preservation for `-A/-B/-C` and numeric parts such as `-1/-2`.
-- De-duplicated review information so repeated stable codes are shown once.
+## 主要功能
 
-## Daily Workflow
+- **扫描下载目录**：读取指定文件夹中的媒体文件、字幕文件和常见下载残留文件。
+- **清理脏文件名**：识别番号、分段、字幕语言、版本标记，生成更干净的最终文件名。
+- **隔离垃圾文件**：把明显不该进入媒体库的广告、快捷方式、残留文件列为隔离候选，而不是直接删除。
+- **安全预览**：扫描和预览不会修改文件；只有点击执行并确认后才会真正改名或隔离。
+- **人工复核**：所有建议都会进入表格，你可以选择执行哪些项，也可以手动改最终文件名。
+- **阻止高风险操作**：遇到冲突、非法文件名、可能覆盖已有文件等情况，会阻止执行。
+- **执行报告**：执行完成后显示成功、跳过、失败、隔离等结果。
+- **历史和回滚**：可以查看执行历史；需要恢复时先做回滚预览，再执行回滚。
+- **可选 AI 预览**：配置 LLM 后可以让 AI 给出命名建议，但 AI 只改预览结果，不能直接执行文件。
+- **本地隐私优先**：默认不把完整本机路径发给云端 LLM；诊断和报告会避免暴露密钥、认证头和原始 LLM 载荷。
 
-1. Choose a folder, preferably with the desktop folder button.
-2. Choose Rule Preview or AI Smart Preview.
-3. Click the primary preview button. AVcleaner scans, creates a persisted plan, validates it, and fills the preview table.
-4. Review the table. The final filename column is editable.
-5. Select safe items or manually select confirmed rows.
-6. View the execution summary, then execute selected items with confirmation.
-7. Read the local execution report.
-8. Use History for run details, rollback preview, rollback execution, or JSON/CSV reports.
+## 安全边界
 
-AI mode is preview-only. Invalid AI suggestions fall back to the rule result and show stable error state. Manual edits override preview suggestions.
+AVcleaner 的核心原则是“不预览就不执行，不确认就不改文件”。
 
-## Safety Model
+- 扫描不会改名、移动、删除或隔离文件。
+- 预览只生成计划，不会修改磁盘。
+- 执行必须使用后端保存的计划、选中项和 `plan_hash`。
+- 前端传来的本机路径不会被执行接口信任。
+- 已存在文件不会被覆盖。
+- 隔离不是永久删除，后续可以通过历史记录回滚。
+- 回滚也不会覆盖已有文件。
+- 旧的通用执行接口 `/api/execute` 保持禁用。
+- 旧的通用 LLM 建议接口 `/api/llm/suggest` 保持禁用。
+- AI 建议必须通过结构校验和文件名安全校验，不能绕过规则。
 
-- Scan and preview never rename, quarantine, delete, or move files.
-- 隔离不是永久删除；隔离文件可以通过历史回滚恢复。
-- Execution requires persisted `plan_id`, matching `plan_hash`, selected item ids, and explicit `confirm: true`.
-- Execution never trusts frontend-supplied file paths.
-- Existing files are never overwritten.
-- New quarantined files are stored under AVcleaner's runtime quarantine folder by default, or under the custom quarantine folder configured in Settings.
-- Rollback never overwrites restore targets.
-- LLM endpoints never execute files and never bypass Pydantic/schema/validator checks.
-- Cloud LLM payloads send filenames only by default, not full paths.
-- API keys, Authorization headers, keyring secrets, raw LLM payloads, and full local media paths are not exposed in reports or diagnostics.
-- Legacy `POST /api/execute` remains disabled with `error_code=legacy_execute_disabled`.
-- Generic `POST /api/llm/suggest` remains disabled with `error_code=legacy_llm_suggest_disabled`.
+## 它不做什么
 
-## Runtime Data
+AVcleaner 不是媒体库管理器，也不是刮削器。
 
-- Source/AppData mode stores data under `%LOCALAPPDATA%\AVcleaner` unless `AVCLEANER_DATA_DIR` overrides it.
-- Portable mode is enabled by `--portable` or a `portable.flag` next to the executable. Data is stored beside the executable under `data`, `logs`, and `quarantine`.
-- The quarantine folder can be changed in Settings > Rules. Leave it empty to use the default AVcleaner `quarantine` directory. AVcleaner no longer creates a new quarantine folder inside the selected source folder for new executions.
-- Diagnostics redact local media paths and secrets. Recent folders and folder-picker state are local workflow data and are not included in settings export by default.
+它不会：
 
-## Quick Start
+- 刮削影片元数据。
+- 下载封面。
+- 生成 NFO。
+- 按演员、片商、分类建立最终媒体库结构。
+- 把文件搬进 Jellyfin、Emby、Plex 或其他最终媒体库目录。
+- 接入 OpenAver 数据库。
+
+如果你需要的是“把 BT 下载目录先清理干净”，AVcleaner 是这个环节的工具；如果你需要的是完整媒体库管理，它应该放在 AVcleaner 之后。
+
+## 快速开始
+
+1. 到 GitHub Releases 下载最新版 `AVcleaner-v0.8.0-portable-win-x64.zip`。
+2. 解压到你希望保存软件的位置，例如 `D:\Tools\AVcleaner`。
+3. 双击运行 `AVcleaner.exe`。
+4. 在工作台选择 BT 下载目录。
+5. 点击“分析”，生成预览。
+6. 检查表格里的“原文件”和“最终文件名”。
+7. 只勾选你确认要处理的项目。
+8. 查看执行摘要。
+9. 点击“执行选中”，再次确认后才会真正改名或隔离。
+
+如果执行结果不符合预期，到“历史”里查看记录，先做回滚预览，再执行回滚。
+
+## 日常使用流程
+
+### 1. 选择下载目录
+
+选择一个 BT 下载完成后的目录。AVcleaner 会把这个目录当成待清理区域。
+
+### 2. 生成预览
+
+默认使用规则预览。规则预览适合大多数标准番号、分段、字幕语言和常见脏后缀。
+
+如果你已经配置 LLM，界面会出现 AI 智能预览。AI 只提供建议，仍然要经过 AVcleaner 的结构校验、文件名校验和人工复核。
+
+### 3. 复核结果
+
+重点看三列：
+
+- **原文件**：当前下载目录里的文件。
+- **最终文件名**：AVcleaner 建议变成的名字，可以手动修改。
+- **状态/提示**：是否可执行、是否有警告、是否被阻止。
+
+### 4. 执行选中项
+
+不要无脑全选。先选安全项，再检查警告项。执行前会显示摘要，确认后才会落盘。
+
+### 5. 查看报告和历史
+
+执行完成后可以看报告。如果需要撤回，到历史记录里做回滚预览。回滚预览通过后，再执行回滚。
+
+## 文件会被放到哪里
+
+便携版旁边会有这些运行目录：
+
+- `data`：本地数据库和状态。
+- `logs`：日志。
+- `quarantine`：默认隔离目录。
+
+如果你在设置里配置了隔离目录，隔离文件会进入你指定的位置。建议不要把隔离目录设到最终媒体库里。
+
+## AI 预览说明
+
+AI 预览是可选功能，不配置也能正常使用规则预览。
+
+AI 预览的限制：
+
+- AI 不能直接改名、移动、删除或隔离文件。
+- AI 只能修改预览计划里的最终文件名。
+- AI 输出必须符合固定结构。
+- AI 建议仍然要经过文件名安全校验。
+- 默认不会把完整本机路径发给云端 LLM。
+- 手动修改优先于 AI 建议。
+
+## 从源码运行
+
+普通用户建议直接下载 Releases 里的便携版。下面是开发者从源码运行的方式：
 
 ```powershell
-cd L:\1\AVcleaner
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe run.py --host 127.0.0.1 --port 8765
 ```
 
-Desktop wrapper with native folder picker:
+桌面窗口模式：
 
 ```powershell
 .\.venv\Scripts\python.exe -m avcleaner.desktop
 ```
 
-Development checks:
+开发检查：
 
 ```powershell
-.\scripts\test.ps1
-.\scripts\corpus.ps1
 .\scripts\check.ps1
 ```
 
-This machine may have more than one Python installation. Use the project venv commands or helper scripts instead of bare python for project checks.
+开发时请使用项目虚拟环境里的 Python，或者使用上面的脚本；不要用系统里的 bare python 直接跑检查，避免多 Python 环境导致依赖不一致。
 
-## Local daily workflow
-
-The v0.8.0 local daily workflow is the same workflow described above: choose a folder, choose Rule Preview or AI Smart Preview, generate one validated preview, review/edit final names, execute selected items, then inspect reports or rollback from History.
-
-The v0.8.0 workbench simplification is local-only: the sidebar shell, hidden advanced diagnostics shortcut, compact safety help, progressive disclosure, toast/status feedback, compact table rows, and the detail stack do not change execution rules or LLM safety. The backend remains authoritative for validation, selection, `plan_hash`, execution, and rollback.
-
-Debug mode is where technical details live: full Scan/Plan IDs, full `plan_hash`, Trace, raw sanitized LLM test results, diagnostics JSON, API capability flags, runtime/database status, and internal item/run IDs. Simple mode keeps those details out of the main workflow.
-
-Recommended desktop window size is 1440 x 900 or larger. The desktop wrapper opens at 1440 x 900 and enforces a 1280 x 760 minimum. Browser mode is optimized for desktop width; below the minimum, the page scrolls instead of crushing table columns.
-
-UI labels keep the important safety words visible: 阻止 means the item cannot execute, 警告 means review before execution, and 需复核 means the user should confirm the result before selecting it.
-
-Compatibility mode does not bypass validation. It only changes how LLM JSON is requested or parsed before the same strict schema and filename validators run.
-
-Packaging checks, when a build exists:
+带打包检查：
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-.\packaging\build_portable.ps1
-.\scripts\check_artifact.ps1 .\dist\AVcleaner
-.\scripts\smoke_packaged.ps1 .\dist\AVcleaner
-.\scripts\smoke_packaged.ps1 .\dist\AVcleaner -RunTempExecution
-.\packaging\create_release_zip.ps1 -SmokeTested
-.\scripts\check_artifact.ps1 .\release\AVcleaner-v0.8.0-portable-win-x64.zip
-.\scripts\smoke_release_zip.ps1 .\release\AVcleaner-v0.8.0-portable-win-x64.zip
-Get-FileHash .\release\AVcleaner-v0.8.0-portable-win-x64.zip -Algorithm SHA256
+.\scripts\check.ps1 -WithPackaging
 ```
 
-## API Flow
+## 当前状态
 
-```text
-POST /api/analyze
-POST /api/scan
-POST /api/plans
-GET  /api/plans/{plan_id}
-POST /api/plans/{plan_id}/validate
-PATCH /api/plans/{plan_id}/items/{item_id}
-PATCH /api/plans/{plan_id}/selection
-POST /api/plans/{plan_id}/execution-summary
-GET  /api/plans/{plan_id}/export.json
-GET  /api/plans/{plan_id}/export.csv
-POST /api/plans/{plan_id}/execute
-GET  /api/runs
-GET  /api/runs/{run_id}
-POST /api/runs/{run_id}/rollback-preview
-POST /api/runs/{run_id}/rollback
-GET  /api/runs/{run_id}/export.json
-GET  /api/runs/{run_id}/export.csv
-GET  /api/recent-folders
-POST /api/recent-folders
-DELETE /api/recent-folders
-GET  /api/folder-picker-state
-PUT  /api/folder-picker-state
-POST /api/rules/test
-GET  /api/rules/corpus-report
-GET  /api/settings/export
-POST /api/settings/import
-```
+- 平台：Windows 优先。
+- 主要形态：本地桌面工具 / 本地 Web UI。
+- 前端：Jinja2 模板、静态 CSS、静态 `app.js`。
+- 后端：FastAPI。
+- 当前版本：`0.8.0`。
