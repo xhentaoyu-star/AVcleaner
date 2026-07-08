@@ -45,6 +45,16 @@ from .validators import validate_filename, validate_plan_items
 
 SCHEMA_VERSION = 1
 PROMPT_VERSION = "plan-review-v1"
+RECOVERABLE_BATCH_ERROR_CODES = {
+    str(IssueCode.LLM_INVALID_JSON),
+    str(IssueCode.LLM_MULTIPLE_JSON_OBJECTS),
+    str(IssueCode.LLM_NO_JSON_OBJECT),
+    str(IssueCode.LLM_SCHEMA_INVALID),
+    str(IssueCode.LLM_MISSING_REQUIRED_FIELD),
+    str(IssueCode.LLM_EXTRA_FIELD),
+    str(IssueCode.LLM_WRONG_FIELD_TYPE),
+    str(IssueCode.LLM_CONFIDENCE_OUT_OF_RANGE),
+}
 
 SCHEMA_ERROR_CODES = {
     str(IssueCode.LLM_SCHEMA_INVALID),
@@ -71,6 +81,11 @@ SAFETY_ERROR_CODES = {
 
 def _hash(value: object) -> str:
     return hashlib.sha256(dumps(value).encode("utf-8")).hexdigest()
+
+
+def _chunks(values: list, size: int) -> list[list]:
+    safe_size = max(1, size)
+    return [values[index : index + safe_size] for index in range(0, len(values), safe_size)]
 
 
 def _known_items(plan_id: str, item_ids: list[str]) -> tuple[object, list[PlanItem]]:
@@ -267,6 +282,113 @@ def _record_from_suggestion(record, item: PlanItem, settings, suggestion: LLMSug
     )
 
 
+def _failed_record_from_error(record, item: PlanItem, settings, payload_hash: str, error_code: str) -> LLMSuggestionRecord:
+    fallback_name = item.target_name or item.suggested_name or item.original_name
+    response_payload = {"item_id": item.id, "error_code": error_code}
+    return LLMSuggestionRecord(
+        suggestion_id=new_id("llmsug"),
+        plan_id=record.plan_id,
+        item_id=item.id,
+        provider=settings.provider,
+        model=settings.model,
+        schema_version=SCHEMA_VERSION,
+        suggested_name=fallback_name,
+        media_code=item.media_code or None,
+        part_suffix=item.part_suffix,
+        variant=item.variant,
+        language_suffix=item.language_suffix,
+        removed_tokens=[],
+        confidence=0.0,
+        reason="LLM batch failed; kept the rule preview suggestion.",
+        warnings=[error_code],
+        validation_issues=[],
+        status="invalid",
+        created_at=utc_now_iso(),
+        payload_hash=payload_hash,
+        response_hash=_hash(response_payload),
+        generated_plan_hash=record.plan_hash,
+    )
+
+
+async def _generate_uncached_suggestions_for_chunk(
+    record,
+    chunk: list[tuple[PlanItem, LLMSuggestionPayloadPreview, str, str]],
+    settings,
+    *,
+    allow_partial_failures: bool,
+) -> list[LLMSuggestionRecord]:
+    request_items = [
+        _suggest_item_from_preview(item, preview, settings.send_full_path)
+        for item, preview, _cache_key_value, _payload_hash in chunk
+    ]
+    try:
+        batch = await llm.suggest_with_llm(
+            type("Request", (), {"items": request_items, "settings": settings})(),
+            settings,
+        )
+    except llm.LLMResponseError as exc:
+        error_code = str(exc.error_code)
+        if not allow_partial_failures:
+            raise AppError(error_code, 400, exc.sanitized_message) from exc
+        if len(chunk) > 1 and error_code in RECOVERABLE_BATCH_ERROR_CODES:
+            midpoint = max(1, len(chunk) // 2)
+            return [
+                *await _generate_uncached_suggestions_for_chunk(record, chunk[:midpoint], settings, allow_partial_failures=allow_partial_failures),
+                *await _generate_uncached_suggestions_for_chunk(record, chunk[midpoint:], settings, allow_partial_failures=allow_partial_failures),
+            ]
+        return [
+            create_llm_suggestion(_failed_record_from_error(record, item, settings, payload_hash, error_code))
+            for item, _preview, _cache_key_value, payload_hash in chunk
+        ]
+    except ValueError:
+        error_code = str(IssueCode.LLM_SCHEMA_INVALID)
+        if not allow_partial_failures:
+            raise AppError(IssueCode.LLM_SCHEMA_INVALID, 400) from None
+        if len(chunk) > 1:
+            midpoint = max(1, len(chunk) // 2)
+            return [
+                *await _generate_uncached_suggestions_for_chunk(record, chunk[:midpoint], settings, allow_partial_failures=allow_partial_failures),
+                *await _generate_uncached_suggestions_for_chunk(record, chunk[midpoint:], settings, allow_partial_failures=allow_partial_failures),
+            ]
+        return [
+            create_llm_suggestion(_failed_record_from_error(record, item, settings, payload_hash, error_code))
+            for item, _preview, _cache_key_value, payload_hash in chunk
+        ]
+    except TimeoutError:
+        error_code = str(IssueCode.LLM_TIMEOUT)
+        if not allow_partial_failures:
+            raise AppError(IssueCode.LLM_TIMEOUT, 504) from None
+        if len(chunk) > 1:
+            midpoint = max(1, len(chunk) // 2)
+            return [
+                *await _generate_uncached_suggestions_for_chunk(record, chunk[:midpoint], settings, allow_partial_failures=allow_partial_failures),
+                *await _generate_uncached_suggestions_for_chunk(record, chunk[midpoint:], settings, allow_partial_failures=allow_partial_failures),
+            ]
+        return [
+            create_llm_suggestion(_failed_record_from_error(record, item, settings, payload_hash, error_code))
+            for item, _preview, _cache_key_value, payload_hash in chunk
+        ]
+    except Exception as exc:
+        raise AppError(IssueCode.LLM_PROVIDER_ERROR, 502, "LLM provider error") from exc
+
+    stored_suggestions: list[LLMSuggestionRecord] = []
+    suggestions_by_item = {suggestion.item_id: suggestion for suggestion in batch.suggestions}
+    for item, _preview, cache_key, payload_hash in chunk:
+        llm_suggestion = suggestions_by_item.get(item.id)
+        if llm_suggestion is None:
+            stored_suggestions.append(
+                create_llm_suggestion(
+                    _failed_record_from_error(record, item, settings, payload_hash, str(IssueCode.LLM_SCHEMA_INVALID))
+                )
+            )
+            continue
+        stored = create_llm_suggestion(_record_from_suggestion(record, item, settings, llm_suggestion, payload_hash))
+        if stored.status == "valid":
+            save_llm_cache(cache_key, settings.provider, settings.model, SCHEMA_VERSION, payload_hash, llm_suggestion.model_dump(mode="json"))
+        stored_suggestions.append(stored)
+    return stored_suggestions
+
+
 async def generate_llm_suggestions(plan_id: str, request: PlanLLMSuggestRequest) -> PlanLLMSuggestResponse:
     record, items = _known_items(plan_id, request.item_ids)
     app_settings = get_settings()
@@ -293,33 +415,15 @@ async def generate_llm_suggestions(plan_id: str, request: PlanLLMSuggestRequest)
             cache_misses += 1
             uncached_items.append((item, preview, cache_key, payload_hash))
 
-    if uncached_items:
-        request_items = [
-            _suggest_item_from_preview(item, preview, settings.send_full_path)
-            for item, preview, _cache_key_value, _payload_hash in uncached_items
-        ]
-        try:
-            batch = await llm.suggest_with_llm(
-                type("Request", (), {"items": request_items, "settings": settings})(),
+    for chunk in _chunks(uncached_items, max(1, settings.max_batch_size)):
+        suggestions.extend(
+            await _generate_uncached_suggestions_for_chunk(
+                record,
+                chunk,
                 settings,
+                allow_partial_failures=request.allow_partial_failures,
             )
-        except llm.LLMResponseError as exc:
-            raise AppError(exc.error_code, 400, exc.sanitized_message) from exc
-        except ValueError as exc:
-            raise AppError(IssueCode.LLM_SCHEMA_INVALID, 400) from exc
-        except TimeoutError as exc:
-            raise AppError(IssueCode.LLM_TIMEOUT, 504) from exc
-        except Exception as exc:
-            raise AppError(IssueCode.LLM_PROVIDER_ERROR, 502, "LLM provider error") from exc
-        suggestions_by_item = {suggestion.item_id: suggestion for suggestion in batch.suggestions}
-        for item, _preview, cache_key, payload_hash in uncached_items:
-            llm_suggestion = suggestions_by_item.get(item.id)
-            if llm_suggestion is None:
-                raise AppError(IssueCode.LLM_SCHEMA_INVALID, 400)
-            stored = create_llm_suggestion(_record_from_suggestion(record, item, settings, llm_suggestion, payload_hash))
-            if stored.status == "valid":
-                save_llm_cache(cache_key, settings.provider, settings.model, SCHEMA_VERSION, payload_hash, llm_suggestion.model_dump(mode="json"))
-            suggestions.append(stored)
+        )
     return PlanLLMSuggestResponse(plan_id=record.plan_id, suggestions=suggestions, cache_hits=cache_hits, cache_misses=cache_misses)
 
 

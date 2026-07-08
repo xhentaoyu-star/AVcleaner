@@ -24,10 +24,14 @@ def test_execution_report_panel_contract() -> None:
     ]:
         assert marker in html
     assert "function executionReportFromResponse" in js
+    assert "function executionReportFromRunDetail" in js
+    assert "function waitForExecutionProgress" in js
     assert "renderExecutionReport" in js
     execute_start = js.index("async function executeSelected")
-    report_pos = js.index("executionReportFromResponse", execute_start)
+    progress_pos = js.index("waitForExecutionProgress", execute_start)
+    report_pos = js.index("executionReportFromRunDetail", execute_start)
     refresh_pos = js.index("refreshRuns", execute_start)
+    assert progress_pos < report_pos
     assert report_pos < refresh_pos
 
 

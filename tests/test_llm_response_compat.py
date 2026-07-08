@@ -16,8 +16,8 @@ from avcleaner.llm import (
 def suggestion_payload(**overrides):
     payload = {
         "item_id": "item-1",
-        "suggested_name": "FC2PPV-1234567-1.mp4",
-        "media_code": "FC2PPV-1234567",
+        "suggested_name": "FC2-PPV-1234567-1.mp4",
+        "media_code": "FC2-PPV-1234567",
         "part_suffix": "-1",
         "variant": "",
         "language_suffix": "",
@@ -59,7 +59,7 @@ def test_strict_schema_requires_language_suffix_and_blocks_extra_fields() -> Non
 def test_raw_json_batch_parses_in_strict_mode() -> None:
     parsed = parse_llm_batch_response(json.dumps(batch_payload()), LLMProviderMode.OPENAI_STRICT_JSON_SCHEMA)
 
-    assert parsed.batch.suggestions[0].suggested_name == "FC2PPV-1234567-1.mp4"
+    assert parsed.batch.suggestions[0].suggested_name == "FC2-PPV-1234567-1.mp4"
     assert parsed.json_extracted is False
 
 
@@ -84,7 +84,7 @@ def test_compat_mode_wraps_single_suggestion_object() -> None:
     parsed = parse_llm_batch_response(json.dumps(suggestion_payload()), LLMProviderMode.CLAUDE_GATEWAY_PROMPT_JSON)
 
     assert len(parsed.batch.suggestions) == 1
-    assert parsed.batch.suggestions[0].media_code == "FC2PPV-1234567"
+    assert parsed.batch.suggestions[0].media_code == "FC2-PPV-1234567"
 
 
 def test_compat_mode_wraps_suggestion_property() -> None:

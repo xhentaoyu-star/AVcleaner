@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from avcleaner.models import PlanRequest, ScanRequest
+from avcleaner.planner import create_plan
 from avcleaner.rules import build_plan, extract_media_code
 from avcleaner.scanner import scan_files
 
@@ -11,12 +12,12 @@ def test_extract_media_code_supported_formats() -> None:
     examples = {
         "[www.abc.com]ABP-123-C.mp4": ("ABP-123", "", "-C"),
         "hhd800.com@IPX999_1080p.mp4": ("IPX-999", "", ""),
-        "FC2-PPV-1234567_uncensored.mp4": ("FC2PPV-1234567", "", "-UNCENSORED"),
+        "FC2-PPV-1234567_uncensored.mp4": ("FC2-PPV-1234567", "", "-UNCENSORED"),
         "428SUKE-095.mp4": ("428SUKE-095", "", ""),
         "014248_141.mp4": ("014248_141", "", ""),
         "HEYZO-1234.mp4": ("HEYZO-1234", "", ""),
         "SUPD-103C.mp4": ("SUPD-103", "", "-C"),
-        "hhd800.com@FC2-PPV-4856696_2.mp4": ("FC2PPV-4856696", "-2", ""),
+        "hhd800.com@FC2-PPV-4856696_2.mp4": ("FC2-PPV-4856696", "-2", ""),
     }
     for filename, expected in examples.items():
         code = extract_media_code(filename)
@@ -35,7 +36,7 @@ def test_build_plan_renames_video_and_keeps_sidecar(tmp_path: Path) -> None:
     by_name = {item.original_name: item for item in plan.items}
 
     assert by_name[video.name].action == "rename"
-    assert by_name[video.name].suggested_name == "FC2PPV-4856696-1.mp4"
+    assert by_name[video.name].suggested_name == "FC2-PPV-4856696-1.mp4"
     assert by_name[sidecar.name].action == "keep"
 
 
@@ -59,6 +60,30 @@ def test_junk_candidates_default_to_quarantine(tmp_path: Path) -> None:
     assert actions[subtitle.name] == "keep"
 
 
+def test_large_temp_download_residue_requires_manual_selection(tmp_path: Path) -> None:
+    residue = tmp_path / "midv-192-4k.mp4.xltd"
+    with residue.open("wb") as handle:
+        handle.truncate(2 * 1024 * 1024 * 1024)
+
+    scan = scan_files(ScanRequest(root_path=str(tmp_path)))
+    plan = build_plan(PlanRequest(root_path=scan.root_path, files=scan.files))
+    item = next(plan_item for plan_item in plan.items if plan_item.original_name == residue.name)
+
+    assert item.action == "quarantine"
+    assert item.checked is False
+    assert item.selected is False
+    assert item.selected_default is False
+    assert item.requires_review is True
+    assert "large_temp_file_requires_manual_selection" in item.warnings
+
+    stored_style_plan = create_plan(PlanRequest(root_path=scan.root_path, files=scan.files))
+    stored_style_item = next(plan_item for plan_item in stored_style_plan.items if plan_item.original_name == residue.name)
+    assert stored_style_item.checked is False
+    assert stored_style_item.selected is False
+    assert stored_style_item.requires_review is True
+    assert "large_temp_file_requires_manual_selection" in stored_style_item.review_reason_codes
+
+
 def test_duplicate_targets_get_cd_suffix(tmp_path: Path) -> None:
     a = tmp_path / "abc.com@ABP-123.mp4"
     b = tmp_path / "hhd800.com@ABP-123.mp4"
@@ -70,4 +95,3 @@ def test_duplicate_targets_get_cd_suffix(tmp_path: Path) -> None:
     names = sorted(item.suggested_name for item in plan.items if item.action == "rename")
 
     assert names == ["ABP-123-CD01.mp4", "ABP-123-CD02.mp4"]
-

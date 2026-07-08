@@ -1,3 +1,5 @@
+const UI_DETAIL_MODE_KEY = "avcleaner.ui_detail_mode";
+
 const state = {
   capabilities: null,
   settings: null,
@@ -6,8 +8,11 @@ const state = {
   plan: null,
   llmSuggestions: [],
   previewMode: "rule",
+  uiDetailMode: loadUiDetailMode(),
   settingsTab: "llm",
   filter: "all",
+  searchQuery: "",
+  showAllRecentFolders: false,
   runFilter: "all",
   loading: "",
   busy: {},
@@ -16,7 +21,10 @@ const state = {
   feedbackTimer: null,
   lastStatus: { message: "待命", type: "info" },
   executionSummary: null,
+  executionConfirmation: null,
   executionReport: null,
+  executionProgress: null,
+  executionProgressTimer: null,
   diagnostics: null,
   runs: [],
   selectedRun: null,
@@ -24,7 +32,7 @@ const state = {
   recentFolders: [],
 };
 
-const PLAN_TABLE_COLS = 7;
+const PLAN_TABLE_COLS = 8;
 const $ = (selector) => document.querySelector(selector);
 const apiToken = document.querySelector('meta[name="avcleaner-token"]')?.content || "";
 const FEEDBACK_TYPES = new Set(["info", "success", "warning", "error", "loading"]);
@@ -50,6 +58,57 @@ const BUSY_KEYS = [
   "loadingHistory",
   "loadingDiagnostics",
 ];
+
+function loadUiDetailMode() {
+  const value = localStorage.getItem(UI_DETAIL_MODE_KEY);
+  return value === "debug" ? "debug" : "simple";
+}
+
+function isDebugMode() {
+  return state.uiDetailMode === "debug";
+}
+
+function setUiDetailMode(mode) {
+  mode = mode === "debug" ? "debug" : "simple";
+  state.uiDetailMode = mode;
+  localStorage.setItem(UI_DETAIL_MODE_KEY, mode);
+  applyUiDetailMode();
+  renderPlan();
+  renderRecentFolders();
+  renderExecutionSummary(state.executionSummary);
+  renderExecutionReport();
+}
+
+function applyUiDetailMode() {
+  document.body.dataset.uiDetailMode = state.uiDetailMode;
+  for (const node of document.querySelectorAll("[data-debug-only]")) {
+    node.hidden = !isDebugMode();
+    if (node.tagName === "DETAILS") node.open = isDebugMode();
+  }
+  for (const node of document.querySelectorAll("[data-simple-only]")) {
+    node.hidden = isDebugMode();
+  }
+  for (const toggle of document.querySelectorAll("[data-ui-detail-toggle]")) {
+    toggle.checked = isDebugMode();
+    toggle.setAttribute("aria-checked", isDebugMode() ? "true" : "false");
+  }
+  updateSummary();
+}
+
+function setupUiDetailModeControls() {
+  for (const toggle of document.querySelectorAll("[data-ui-detail-toggle]")) {
+    toggle.checked = isDebugMode();
+    toggle.addEventListener("change", () => setUiDetailMode(toggle.checked ? "debug" : "simple"));
+  }
+  document.addEventListener("keydown", (event) => {
+    if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "d") {
+      event.preventDefault();
+      setUiDetailMode(isDebugMode() ? "simple" : "debug");
+      toast(isDebugMode() ? "高级诊断已显示" : "已回到日常模式", "info");
+    }
+  });
+  applyUiDetailMode();
+}
 
 const ACTION_LABELS = {
   "rename": "改名",
@@ -755,11 +814,11 @@ const LLM_SAFETY_COPY = {
 };
 
 const LOADING_LABELS = {
-  analyze: "分析中",
-  scan: "扫描中",
-  plan: "生成预览中",
-  validate: "校验中",
-  llm: "请求 LLM 中",
+  analyze: "正在扫描 / 正在生成预览",
+  scan: "正在扫描",
+  plan: "正在生成预览",
+  validate: "正在校验",
+  llm: "正在请求 AI / 正在校验",
   execute: "执行中",
   rollback: "回滚中",
   settings: "保存设置中",
@@ -835,18 +894,21 @@ function sanitizeFeedbackMessage(message) {
   return text;
 }
 
+function safeToastMessage(message) {
+  return sanitizeFeedbackMessage(friendlyMessage(message));
+}
+
 function showFeedback(message, { type = "info", timeout } = {}) {
-  const node = $("#toast");
-  if (!node) return;
+  const toast = $("#toast");
+  if (!toast) return;
   const safeType = FEEDBACK_TYPES.has(type) ? type : "info";
-  const text = sanitizeFeedbackMessage(friendlyMessage(message));
-  node.textContent = text;
-  node.className = `toast show ${safeType}`;
-  node.setAttribute("role", safeType === "error" || safeType === "warning" ? "alert" : "status");
+  toast.textContent = safeToastMessage(message);
+  toast.className = `toast show ${safeType}`;
+  toast.setAttribute("role", safeType === "error" || safeType === "warning" ? "alert" : "status");
   if (state.feedbackTimer) window.clearTimeout(state.feedbackTimer);
   const resolvedTimeout = timeout ?? (safeType === "error" ? 9000 : safeType === "loading" ? 0 : 2800);
   if (resolvedTimeout > 0) {
-    state.feedbackTimer = window.setTimeout(() => node.classList.remove("show"), resolvedTimeout);
+    state.feedbackTimer = window.setTimeout(() => toast.classList.remove("show"), resolvedTimeout);
   }
 }
 
@@ -855,7 +917,7 @@ function toast(message, type = "info", options = {}) {
 }
 
 function setStatus(message, type = "info") {
-  state.lastStatus = { message: sanitizeFeedbackMessage(friendlyMessage(message)), type };
+  state.lastStatus = { message: safeToastMessage(message), type };
   const node = $("#lastOperationStatus");
   if (!node) return;
   node.textContent = state.lastStatus.message || "待命";
@@ -865,6 +927,10 @@ function setStatus(message, type = "info") {
 function setText(selector, value) {
   const node = $(selector);
   if (node) node.textContent = value;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function setCompactText(selector, value, fallback = "-") {
@@ -1000,7 +1066,7 @@ function getExecuteButtonState(plan = state.plan) {
   if (!plan.plan_hash) {
     return { enabled: false, reason: "plan_hash_missing", selectedCount: 0 };
   }
-  if (plan.state === "stale") {
+  if (plan.state === "stale" || plan.state === "executed") {
     return { enabled: false, reason: "plan_not_validated", selectedCount: selectedExecutableItems(plan).length };
   }
   const selected = selectedExecutableItems(plan);
@@ -1016,8 +1082,49 @@ function getExecuteButtonState(plan = state.plan) {
   return { enabled: !busyAny(), reason: "", selectedCount: selected.length };
 }
 
-function filteredItems() {
+function operationStatus() {
+  if (isBusy("analyzing")) return { code: "analyzing", label: "正在分析", type: "loading" };
+  if (isBusy("requestingAi") || state.loading === "llm") return { code: "requesting_ai", label: "正在请求 AI", type: "loading" };
+  if (isBusy("validating") || state.loading === "validate") return { code: "validating", label: "正在校验", type: "loading" };
+  if (isBusy("executing") || state.loading === "execute") return { code: "executing", label: "正在执行", type: "loading" };
+  if (state.plan?.state === "executed" || state.executionReport?.state === "completed") return { code: "executed", label: "执行完成", type: "success" };
   const items = state.plan?.items || [];
+  const blocking = state.plan?.summary?.blocking_items ?? items.filter(hasBlocking).length;
+  if (blocking > 0) return { code: "blocked", label: "有阻止项", type: "warning" };
+  renderOperationStatus();
+  updateSummaryCardVisibility(counts);
+
+  const executeState = getExecuteButtonState();
+  if (executeState.enabled) return { code: "executable", label: "可执行", type: "success" };
+  if (state.plan?.plan_id) return { code: "preview_ready", label: state.plan.state === "validated" ? "已校验" : "已预览", type: "success" };
+  return { code: "idle", label: "未分析", type: "info" };
+}
+
+function renderOperationStatus() {
+  const status = operationStatus();
+  setText("#operationStatusChip", status.label);
+  const chip = $("#operationStatusChip");
+  if (chip) {
+    chip.dataset.status = status.type;
+    chip.title = isDebugMode() ? `code: ${status.code}` : status.label;
+  }
+}
+
+function filteredItems() {
+  const query = state.searchQuery.trim().toLowerCase();
+  const matchesSearch = (item) => {
+    if (!query) return true;
+    return [
+      item.original_name,
+      item.target_name,
+      item.suggested_name,
+      item.relative_path,
+      item.source_rel_path,
+      item.media_code,
+      item.associated_media_code,
+    ].some((value) => String(value || "").toLowerCase().includes(query));
+  };
+  let items = (state.plan?.items || []).filter(matchesSearch);
   if (state.filter === "selected") return items.filter((item) => item.selected);
   if (state.filter === "safe_selectable") return items.filter((item) => !hasBlocking(item) && !item.requires_review && !item.sidecar_type && executableAction(item));
   if (state.filter === "blocking") return items.filter(hasBlocking);
@@ -1073,11 +1180,36 @@ function renderFilterOptions() {
   filter.value = options.some(([value]) => value === previous) ? previous : "all";
 }
 
+function updateSummaryCardVisibility(counts) {
+  for (const card of document.querySelectorAll("[data-summary-card]")) {
+    const metric = card.dataset.summaryCard;
+    const value = Number(counts[metric] || 0);
+    if (isDebugMode() || card.dataset.cardPriority === "essential") {
+      card.hidden = false;
+      continue;
+    }
+    if (card.dataset.cardPriority === "conditional") {
+      card.hidden = value <= 0 && !(state.filter === card.dataset.filter);
+    }
+  }
+}
+
 function updateSummary() {
   const items = state.plan?.items || [];
   const summary = state.plan?.summary || {};
   const blocking = summary.blocking_items ?? items.filter(hasBlocking).length;
   const selected = selectedExecutableItems().length;
+  const counts = {
+    files: state.scan?.total_files || items.length || 0,
+    rename: summary.rename_items ?? items.filter((item) => item.action === "rename").length,
+    quarantine: summary.quarantine_items ?? items.filter((item) => item.action === "quarantine").length,
+    sidecar: summary.sidecar_items ?? items.filter((item) => item.sidecar_type).length,
+    selected: summary.selected_items ?? items.filter((item) => item.selected).length,
+    blocking,
+    warning: summary.warning_items ?? items.filter(hasWarningOnly).length,
+    "requires-review": summary.requires_review_items ?? items.filter((item) => item.requires_review).length,
+    manual: summary.manual_edited_items ?? items.filter((item) => item.manual_edited).length,
+  };
   setText("#metricFiles", state.scan?.total_files || 0);
   setText("#metricRename", summary.rename_items ?? items.filter((item) => item.action === "rename").length);
   setText("#metricQuarantine", summary.quarantine_items ?? items.filter((item) => item.action === "quarantine").length);
@@ -1094,7 +1226,15 @@ function updateSummary() {
   setText("#blockingCount", blocking);
   setText("#statusSelectedCount", selected);
   setText("#selectedCount", selected);
+  setText("#previewModeStatus", state.previewMode === "ai" && aiPreviewAvailable() ? "AI 智能预览" : "规则预览");
+  setText("#executionPillRename", summary.rename_items ?? items.filter((item) => item.action === "rename").length);
+  setText("#executionPillQuarantine", summary.quarantine_items ?? items.filter((item) => item.action === "quarantine").length);
+  setText("#executionPillSkip", items.filter((item) => !item.selected || !executableAction(item)).length);
+  setText("#executionPillWarning", summary.warning_items ?? items.filter(hasWarningOnly).length);
   setText("#currentMode", state.diagnostics?.summary?.runtime_mode || state.diagnostics?.runtime?.mode || "-");
+  setText("#statusRuleVersion", state.settings?.rules?.ruleset_version || state.capabilities?.ruleset_version || "v1");
+  const llm = state.settings?.llm || {};
+  setText("#aiModelStatus", llmConfigured() ? `${llm.provider || "LLM"} / ${llm.model || "-"}` : "未配置");
   setStatus(state.lastStatus.message || "待命", state.lastStatus.type || "info");
 
   const executeState = getExecuteButtonState();
@@ -1122,6 +1262,12 @@ function updateSummary() {
   }
   const folderPickerBtn = $("#folderPickerBtn");
   if (folderPickerBtn) folderPickerBtn.disabled = isBusyNow;
+  const topFolderPickerBtn = $("#topFolderPickerBtn");
+  if (topFolderPickerBtn) topFolderPickerBtn.disabled = isBusyNow;
+  const refreshPlanBtn = $("#refreshPlanBtn");
+  if (refreshPlanBtn) refreshPlanBtn.disabled = isBusyNow || !state.plan?.plan_id;
+  const confirmExecuteBtn = $("#confirmExecuteBtn");
+  if (confirmExecuteBtn) confirmExecuteBtn.disabled = isBusyNow || !state.executionConfirmation;
   const llmSection = $("#llmSection");
   if (llmSection) llmSection.hidden = true;
   renderFilterOptions();
@@ -1194,6 +1340,42 @@ function renderIssueSummary(item) {
   }
   if (codes.length > 3) wrap.append(badge(`+${codes.length - 3}`, "more_codes", "muted"));
   return wrap;
+}
+
+function processSummaryText(item) {
+  if (!item) return "-";
+  if (item.manual_edited) return "手动修改后的最终文件名";
+  if (item.action === "quarantine") return explanationFor(item.reason || "download_residue_or_shortcut")?.title || "隔离候选";
+  if (item.action === "rename") {
+    const source = previewSource(item);
+    if (source === "llm") return "AI 预览建议改名";
+    if (source === "rule_fallback") return "AI 回退到规则建议";
+    return item.requires_review ? "规则建议，建议复核" : "规则建议改名";
+  }
+  if (item.action === "keep") return "保持原样";
+  if (item.action === "review") return "需要人工复核";
+  return friendlyAction(item.action || item.operation) || "-";
+}
+
+function renderProcessSummary(item) {
+  const span = truncateText(processSummaryText(item), "process-summary truncate");
+  span.title = [
+    processSummaryText(item),
+    item.reason ? `code: ${item.reason}` : "",
+    item.confidence !== undefined ? `confidence: ${Number(item.confidence || 0).toFixed(2)}` : "",
+  ].filter(Boolean).join(" | ");
+  return span;
+}
+
+function renderRiskHint(item) {
+  const codes = issueCodes(item);
+  if (codes.length || hasBlocking(item) || hasWarningOnly(item) || item.requires_review) {
+    return renderIssueSummary(item);
+  }
+  const span = document.createElement("span");
+  span.className = "muted truncate";
+  span.textContent = "-";
+  return span;
 }
 
 function sidecarReasonCode(item) {
@@ -1321,6 +1503,139 @@ function detailSection(title, content) {
   return section;
 }
 
+function formatTimeSeconds(value) {
+  const numeric = Number(value || 0);
+  if (!numeric) return "-";
+  return new Date(numeric * 1000).toLocaleString("zh-CN", { hour12: false });
+}
+
+function traceSummary(item) {
+  const trace = item.trace || [];
+  if (!trace.length) return "没有规则 Trace。";
+  const last = trace[trace.length - 1];
+  return `${trace.length} 步；最后规则 ${last.rule_id || "-"}，输出 ${last.after || item.target_name || "-"}`;
+}
+
+function shouldShowAiReview(item) {
+  const llmState = String(item?.llm_state || "");
+  return state.previewMode === "ai"
+    || state.plan?.preview_mode === "ai"
+    || Boolean(item?.llm_suggested_name || item?.llm_reason || item?.llm_error_code)
+    || (llmState && !["hidden", "not_requested"].includes(llmState));
+}
+
+function detailNameEditor(item) {
+  const wrap = document.createElement("div");
+  wrap.className = "detail-line";
+  const label = document.createElement("strong");
+  label.textContent = "最终文件名";
+  const input = document.createElement("input");
+  input.className = "detail-name-input";
+  input.value = item.target_name || item.suggested_name || "";
+  input.disabled = item.action === "quarantine" || item.action === "keep" || busyAny() || Boolean(state.rowSaving[item.id]);
+  const previousValue = input.value;
+  input.addEventListener("change", () => saveManualEdit(item, input, previousValue));
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      input.blur();
+    }
+  });
+  wrap.append(label, input);
+  return wrap;
+}
+
+async function copyText(text, successMessage = "已复制") {
+  const value = String(text || "");
+  if (!value) {
+    toast("没有可复制的内容", "warning");
+    return;
+  }
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+  } else {
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.setAttribute("readonly", "true");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    document.body.append(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    textarea.remove();
+  }
+  toast(successMessage, "success");
+  setStatus(successMessage, "success");
+}
+
+function detailActionsNode(item) {
+  const wrap = document.createElement("div");
+  wrap.className = "detail-actions";
+
+  const edit = document.createElement("button");
+  edit.type = "button";
+  edit.className = "btn-secondary has-icon";
+  edit.append(icon("edit"), document.createElement("span"));
+  edit.lastChild.textContent = "编辑文件名";
+  edit.addEventListener("click", () => document.querySelector(".detail-name-input")?.focus());
+
+  const copyPath = document.createElement("button");
+  copyPath.type = "button";
+  copyPath.className = "btn-secondary has-icon";
+  copyPath.append(icon("copy"), document.createElement("span"));
+  copyPath.lastChild.textContent = "复制路径";
+  copyPath.addEventListener("click", () => copyText(item.source_path || item.relative_path || item.original_name, "路径已复制"));
+
+  const copyDetails = document.createElement("button");
+  copyDetails.type = "button";
+  copyDetails.className = "btn-secondary has-icon";
+  copyDetails.append(icon("details"), document.createElement("span"));
+  copyDetails.lastChild.textContent = "复制详情";
+  copyDetails.addEventListener("click", () => copyText(JSON.stringify(item, null, 2), "详情已复制"));
+
+  const selection = document.createElement("button");
+  selection.type = "button";
+  selection.className = "btn-secondary has-icon";
+  selection.append(icon(item.selected ? "clear" : "safe-select"), document.createElement("span"));
+  selection.lastChild.textContent = item.selected ? "取消执行选择" : "加入执行选择";
+  selection.disabled = !executableAction(item) || hasBlocking(item) || item.selection_locked || busyAny();
+  selection.addEventListener("click", () => {
+    invalidateExecutionSummary();
+    updateSelection(item.selected ? "remove" : "add", [item.id]).catch((error) => toast(error.message, "error"));
+  });
+
+  wrap.append(edit, copyPath, copyDetails, selection);
+  return wrap;
+}
+
+function debugDetailsNode(item) {
+  const details = document.createElement("details");
+  details.className = "raw-json debug-details";
+  const summary = document.createElement("summary");
+  summary.textContent = "Debug 信息";
+
+  const debugList = document.createElement("div");
+  debugList.className = "detail-list";
+  debugList.append(
+    detailLine("内部 ID", `item=${item.id || "-"} / scan_item=${item.scan_item_id || "-"}`),
+    detailLine("原始代码", issueCodes(item).join("；") || "-"),
+    detailLine("校验状态", hasBlocking(item) ? "阻止" : hasWarningOnly(item) ? "警告" : "通过"),
+    detailLine("Trace 摘要", traceSummary(item)),
+    detailLine("source_path", item.source_path || "-"),
+    detailLine("target_path", item.target_path || "-")
+  );
+
+  const traceWrap = document.createElement("div");
+  traceWrap.className = "debug-trace";
+  traceWrap.append(renderTraceList(item));
+
+  const pre = document.createElement("pre");
+  pre.className = "test-result";
+  pre.textContent = JSON.stringify(item, null, 2);
+  details.append(summary, debugList, traceWrap, pre);
+  return details;
+}
+
 function groupLabel(item) {
   return item.group_id ? `${item.associated_media_code || item.media_code || "group"}:${item.group_id.slice(-6)}` : "";
 }
@@ -1357,63 +1672,139 @@ function renderDetailDrawer() {
   const item = (state.plan?.items || []).find((candidate) => candidate.id === state.detailItemId);
   body.innerHTML = "";
   if (!item) {
-    setText("#detailDrawerTitle", "未选择项目");
-    body.append(emptyStateNode("未选择项目", "点击左侧表格中的一行查看完整路径、问题代码、Trace、AI 细节和 Debug 信息。", "details"));
+    setText("#detailDrawerTitle", "选择左侧文件查看详细信息");
+    body.append(emptyStateNode("未选择项目", "选择左侧文件查看详细信息。表格只放短摘要，完整路径、AI 审核、Trace 和 Debug 信息都在这里。", "details"));
     return;
   }
   setText("#detailDrawerTitle", item.original_name || item.id);
-  const fileDetails = document.createElement("div");
-  fileDetails.className = "detail-list";
-  fileDetails.append(
-    detailLine("item_id", item.id || "-"),
-    detailLine("原文件", item.original_name || "-"),
-    detailLine("相对路径", item.relative_path || item.source_rel_path || item.original_name || "-"),
-    detailLine("最终文件名", item.target_name || item.suggested_name || "-"),
-    detailLine("操作类型", friendlyAction(item.action || item.operation)),
+
+  const itemDetails = document.createElement("div");
+  itemDetails.className = "detail-list";
+  itemDetails.append(
+    detailLine("状态", [friendlyAction(item.action || item.operation), hasBlocking(item) ? "阻止" : hasWarningOnly(item) ? "警告" : "可处理"].join(" / ")),
+    detailLine("原文件名", item.original_name || "-"),
+    detailNameEditor(item),
+    detailLine("操作", friendlyAction(item.action || item.operation)),
     detailLine("来源", SOURCE_LABELS[previewSource(item)] || friendlySource(item.source || item.suggestion_source) || "-"),
+    detailLine("处理摘要", processSummaryText(item), item.reason || ""),
+    detailLine("问题代码", issueCodes(item).join("；") || "-", "issue_codes"),
+    detailLine("Trace 摘要", traceSummary(item)),
+    detailLine("相对路径", item.relative_path || item.source_rel_path || item.original_name || "-"),
+    detailLine("完整路径", item.source_path || "-"),
+    detailLine("大小", formatSize(item.size)),
+    detailLine("修改时间", formatTimeSeconds(item.mtime)),
     detailLine("识别番号", item.media_code || item.associated_media_code || "-"),
     detailLine("置信度", Number(item.confidence || 0).toFixed(2))
   );
 
-  const codeDetails = document.createElement("div");
-  codeDetails.className = "detail-list";
-  codeDetails.append(detailLine("问题代码", issueCodes(item).join("；") || "-", "issue_codes"));
+  const reviewDetails = document.createElement("div");
+  reviewDetails.className = "detail-list";
+  reviewDetails.append(renderIssueList(item));
   const suggestion = explanationFor(item.reason || issueCodes(item)[0]);
-  codeDetails.append(detailLine("建议动作", suggestion?.suggested_action || "-", item.reason || issueCodes(item)[0] || ""));
+  reviewDetails.append(detailLine("建议动作", suggestion?.suggested_action || "-", item.reason || issueCodes(item)[0] || ""));
 
   const llmDetails = document.createElement("div");
   llmDetails.className = "detail-list";
   llmDetails.append(
+    detailLine("AI 置信度", item.llm_confidence === null || item.llm_confidence === undefined ? "-" : `${Math.round(Number(item.llm_confidence) * 100)}%`),
+    detailLine("安全校验", item.llm_validation_codes?.length || item.llm_error_code ? "未通过或需复核" : shouldShowAiReview(item) ? "通过" : "-"),
     detailLine("AI 状态", LLM_STATE_LABELS[item.llm_state] || item.llm_state || "-"),
     detailLine("AI 建议", item.llm_suggested_name || "-"),
-    detailLine("AI 原因", item.llm_reason || "-"),
+    detailLine("理由", item.llm_reason || "-"),
+    detailLine("警告/错误", [...new Set([...(item.llm_warnings || []), item.llm_error_code].filter(Boolean))].join("；") || "-"),
+    detailLine("回退状态", item.llm_state && ["invalid", "schema_error", "safety_error", "provider_error"].includes(item.llm_state) ? "已回退到规则预览" : "-"),
     detailLine("AI 稳定码", [...new Set([...(item.llm_validation_codes || []), item.llm_error_code].filter(Boolean))].join("；") || "-")
   );
 
-  const debugDetails = document.createElement("details");
-  debugDetails.className = "raw-json";
-  const summary = document.createElement("summary");
-  summary.textContent = "Debug JSON";
-  const pre = document.createElement("pre");
-  pre.className = "test-result";
-  pre.textContent = JSON.stringify(item, null, 2);
-  debugDetails.append(summary, pre);
+  body.append(detailSection("项目详情", itemDetails));
+  body.append(detailSection("复核信息", reviewDetails));
+  if (shouldShowAiReview(item)) body.append(detailSection("AI 审核", llmDetails));
+  if (item.sidecar_type) body.append(detailSection("关联文件", renderSidecarDetails(item)));
+  body.append(detailSection("Debug 信息", debugDetailsNode(item)));
+  body.append(detailSection("快捷操作", detailActionsNode(item)));
+}
 
-  body.append(
-    detailSection("文件", fileDetails),
-    detailSection("复核信息", renderIssueList(item)),
-    detailSection("问题代码", codeDetails),
-    detailSection("AI 细节", llmDetails),
-    detailSection("关联文件", renderSidecarDetails(item)),
-    detailSection("Trace", renderTraceList(item)),
-    detailSection("原始详情", debugDetails)
+function renderDetailDrawer() {
+  const panel = $("#detailDrawerPanel");
+  const body = $("#detailDrawerBody");
+  if (!panel || !body) return;
+  const item = (state.plan?.items || []).find((candidate) => candidate.id === state.detailItemId);
+  body.innerHTML = "";
+  panel.classList.toggle("is-empty", !item);
+  if (!item) {
+    setText("#detailDrawerTitle", "选择左侧文件查看详情");
+    body.append(emptyStateNode("选择左侧文件查看详情", "表格只放关键判断，完整解释在这里显示。", "details"));
+    return;
+  }
+  setText("#detailDrawerTitle", item.original_name || item.id);
+
+  const fileDetails = document.createElement("div");
+  fileDetails.className = "detail-list";
+  fileDetails.append(
+    detailLine("原文件名", item.original_name || "-"),
+    detailLine("大小", formatSize(item.size)),
+    detailLine("修改时间", formatTimeSeconds(item.mtime)),
+    detailLine("识别番号", item.media_code || item.associated_media_code || "-")
   );
+
+  const finalName = document.createElement("div");
+  finalName.className = "detail-list";
+  finalName.append(detailNameEditor(item));
+
+  const handling = document.createElement("div");
+  handling.className = "detail-list";
+  handling.append(
+    detailLine("状态", [friendlyAction(item.action || item.operation), hasBlocking(item) ? "阻止" : hasWarningOnly(item) ? "警告" : "可处理"].join(" / ")),
+    detailLine("来源", SOURCE_LABELS[previewSource(item)] || friendlySource(item.source || item.suggestion_source) || "-"),
+    detailLine("摘要", processSummaryText(item), item.reason || "")
+  );
+
+  const risk = document.createElement("div");
+  risk.className = "detail-list";
+  risk.append(renderIssueList(item));
+  const suggestion = explanationFor(item.reason || issueCodes(item)[0]);
+  risk.append(detailLine("建议动作", suggestion?.suggested_action || "-", item.reason || issueCodes(item)[0] || ""));
+
+  const llmDetails = document.createElement("div");
+  llmDetails.className = "detail-list";
+  llmDetails.append(
+    detailLine("AI 置信度", item.llm_confidence === null || item.llm_confidence === undefined ? "-" : `${Math.round(Number(item.llm_confidence) * 100)}%`),
+    detailLine("安全校验", item.llm_validation_codes?.length || item.llm_error_code ? "未通过或需复核" : shouldShowAiReview(item) ? "通过" : "-"),
+    detailLine("AI 状态", LLM_STATE_LABELS[item.llm_state] || item.llm_state || "-"),
+    detailLine("AI 建议", item.llm_suggested_name || "-"),
+    detailLine("理由", item.llm_reason || "-")
+  );
+
+  const pathDetails = document.createElement("details");
+  pathDetails.className = "detail-section path-section";
+  const details = pathDetails;
+  if (isDebugMode()) details.open = true;
+  const pathSummary = document.createElement("summary");
+  pathSummary.textContent = "路径";
+  const pathList = document.createElement("div");
+  pathList.className = "detail-list";
+  pathList.append(
+    detailLine("相对路径", item.relative_path || item.source_rel_path || item.original_name || "-"),
+    detailLine("完整路径", item.source_path || "-")
+  );
+  pathSummary.textContent = "显示完整路径";
+  pathDetails.append(pathSummary, pathList);
+
+  body.append(detailSection("文件", fileDetails));
+  body.append(detailSection("最终文件名", finalName));
+  body.append(detailSection("处理", handling));
+  body.append(detailSection("风险/提示", risk));
+  if (shouldShowAiReview(item)) body.append(detailSection("AI 建议", llmDetails));
+  if (item.sidecar_type) body.append(detailSection("关联文件", renderSidecarDetails(item)));
+  body.append(detailSection("路径", pathDetails));
+  if (isDebugMode()) body.append(detailSection("Debug 信息", debugDetailsNode(item)));
+  body.append(detailSection("快捷操作", detailActionsNode(item)));
 }
 
 async function saveManualEdit(item, nameInput, previousValue) {
   if (!state.plan?.plan_id) return;
   if (nameInput.value === previousValue) return;
-  state.executionSummary = null;
+  invalidateExecutionSummary();
   state.rowSaving[item.id] = true;
   setBusy("savingEdit", true);
   nameInput.classList.add("is-saving");
@@ -1514,7 +1905,7 @@ function renderPlan() {
       if (checked.disabled && lockReason) checked.title = `${friendlyCode(lockReason)} | code: ${lockReason}`;
       checked.addEventListener("click", (event) => event.stopPropagation());
       checked.addEventListener("change", () => {
-        state.executionSummary = null;
+        invalidateExecutionSummary();
         updateSelection(checked.checked ? "add" : "remove", [item.id]).catch((error) => {
           toast(error.message, "error");
           renderPlan();
@@ -1548,6 +1939,23 @@ function renderPlan() {
         }
       });
 
+      const editButton = iconButton("edit", "编辑最终文件名");
+      editButton.disabled = nameInput.disabled;
+      editButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        nameInput.focus();
+      });
+
+      const copyButton = iconButton("copy", "复制最终文件名");
+      copyButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        copyText(item.target_name || item.suggested_name || "", "最终文件名已复制").catch((error) => toast(error.message, "error"));
+      });
+
+      const actions = document.createElement("div");
+      actions.className = "row-actions";
+      actions.append(detailButton, editButton, copyButton);
+
       const original = document.createElement("div");
       original.className = "file-cell";
       original.append(truncateText(item.original_name, "file-name truncate"));
@@ -1569,8 +1977,9 @@ function renderPlan() {
         cell(original, "name-col"),
         cell(targetWrap, "target-col"),
         cell(badge(SOURCE_LABELS[previewSource(item)] || previewSource(item), previewSource(item), previewSource(item) === "rule_fallback" ? "warn" : "info"), "source-col"),
-        cell(renderIssueSummary(item), "badge-col"),
-        cell(detailButton, "detail-col")
+        cell(renderProcessSummary(item), "reason-col"),
+        cell(renderRiskHint(item), "badge-col"),
+        cell(actions, "detail-col")
       );
       body.append(row);
     }
@@ -1698,7 +2107,15 @@ function updateLlmModeHelp() {
 function renderFirstRunHelper() {
   const helper = $("#firstRunHelper");
   if (!helper) return;
-  helper.hidden = Boolean(state.settings?.first_run_seen || state.scan || state.plan);
+  helper.hidden = Boolean(state.settings?.first_run_seen || (state.scan || state.plan) && !isDebugMode());
+  const details = $("#firstRunDetails");
+  if (details && isDebugMode()) details.hidden = false;
+}
+
+function toggleFirstRunDetails() {
+  const details = $("#firstRunDetails");
+  if (!details) return;
+  details.hidden = !details.hidden;
 }
 
 function boolLabel(value) {
@@ -1787,6 +2204,8 @@ function renderPreviewModeControls() {
 
 async function loadCapabilities() {
   state.capabilities = await api("/api/capabilities");
+  const target = $("#capabilitiesResult");
+  if (target) target.textContent = JSON.stringify(state.capabilities, null, 2);
   renderPreviewModeControls();
 }
 
@@ -1935,7 +2354,8 @@ function renderRecentFolders() {
     target.append(span);
     return;
   }
-  for (const folder of state.recentFolders) {
+  const folders = isDebugMode() || state.showAllRecentFolders ? state.recentFolders : state.recentFolders.slice(0, 3);
+  for (const folder of folders) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "recent-folder";
@@ -1946,6 +2366,17 @@ function renderRecentFolders() {
       toast("已填入最近文件夹，请点击预览按钮");
     });
     target.append(button);
+  }
+  if (!isDebugMode() && state.recentFolders.length > 3) {
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "recent-folder recent-more";
+    more.textContent = state.showAllRecentFolders ? "收起" : `更多 ${state.recentFolders.length - 3}`;
+    more.addEventListener("click", () => {
+      state.showAllRecentFolders = !state.showAllRecentFolders;
+      renderRecentFolders();
+    });
+    target.append(more);
   }
 }
 
@@ -2015,11 +2446,15 @@ async function analyze() {
   state.plan = null;
   state.detailItemId = "";
   state.llmSuggestions = [];
-  state.executionSummary = null;
+  invalidateExecutionSummary();
   renderPlan();
   setBusy("analyzing", true);
   if (mode === "ai") setBusy("requestingAi", true);
-  setLoading(mode === "ai" ? "llm" : "analyze");
+  if (mode === "ai") {
+    setLoading("llm");
+  } else {
+    setLoading("analyze");
+  }
   showFeedback(mode === "ai" ? "AI 智能预览分析中" : "规则预览分析中", { type: "loading" });
   setStatus(mode === "ai" ? "AI 智能预览分析中" : "规则预览分析中", "loading");
   try {
@@ -2030,7 +2465,7 @@ async function analyze() {
     state.scan = response.scan;
     state.plan = response.plan;
     state.llmSuggestions = [];
-    state.executionSummary = null;
+    invalidateExecutionSummary();
     renderPlan();
     await Promise.all([
       loadRecentFolders().catch(() => {}),
@@ -2071,7 +2506,7 @@ async function scan() {
     });
     state.plan = null;
     state.llmSuggestions = [];
-    state.executionSummary = null;
+    invalidateExecutionSummary();
     renderPlan();
     await loadRecentFolders().catch(() => {});
     toast(`scan_complete:${state.scan.total_files}`);
@@ -2092,7 +2527,7 @@ async function plan() {
       body: JSON.stringify({ scan_id: state.scan.scan_id }),
     });
     state.llmSuggestions = [];
-    state.executionSummary = null;
+    invalidateExecutionSummary();
     renderPlan();
     await loadRecentFolders().catch(() => {});
     toast("预览已生成");
@@ -2113,10 +2548,32 @@ async function validatePlan() {
   setStatus("校验中", "loading");
   try {
     state.plan = await api(`/api/plans/${state.plan.plan_id}/validate`, { method: "POST" });
-    state.executionSummary = null;
+    invalidateExecutionSummary();
     renderPlan();
     toast("校验完成", "success");
     setStatus("校验完成", "success");
+  } finally {
+    setBusy("validating", false);
+    setLoading("");
+  }
+}
+
+async function refreshCurrentPlan() {
+  if (!state.plan?.plan_id) {
+    toast("no_plan", "warning");
+    return;
+  }
+  if (isBusy("validating")) return;
+  setBusy("validating", true);
+  setLoading("validate");
+  showFeedback("正在刷新当前预览", { type: "loading" });
+  setStatus("正在刷新当前预览", "loading");
+  try {
+    state.plan = await api(`/api/plans/${state.plan.plan_id}`);
+    invalidateExecutionSummary();
+    renderPlan();
+    toast("当前预览已刷新", "success");
+    setStatus("当前预览已刷新", "success");
   } finally {
     setBusy("validating", false);
     setLoading("");
@@ -2150,13 +2607,13 @@ async function updateSelection(mode, itemIds = []) {
 }
 
 async function selectSafeItems() {
-  state.executionSummary = null;
+  invalidateExecutionSummary();
   await updateSelection("select_safe", []);
   toast("已选择安全项", "success");
 }
 
 async function clearSelection() {
-  state.executionSummary = null;
+  invalidateExecutionSummary();
   await updateSelection("replace", []);
   toast("已清空选择", "success");
 }
@@ -2164,6 +2621,11 @@ async function clearSelection() {
 function renderExecutionSummary(response) {
   const target = $("#executionSummaryResult");
   if (!target) return;
+  target.hidden = !response || !isDebugMode();
+  if (!response) {
+    target.textContent = "";
+    return;
+  }
   const messages = (response.messages || []).map((code) => `- ${friendlyCode(code)} (${code})`).join("\n") || "- 无阻止消息";
   target.textContent = [
     `可以执行: ${response.ok_to_execute ? "是" : "否"}`,
@@ -2179,12 +2641,56 @@ function renderExecutionSummary(response) {
   ].join("\n");
 }
 
+function renderExecutionConfirm(summary) {
+  const panel = $("#executionConfirmPanel");
+  if (!panel) return;
+  panel.hidden = !summary;
+  if (!summary) return;
+  setText("#executionConfirmSelected", summary.selected_count ?? 0);
+  setText("#executionConfirmRename", summary.rename_count ?? 0);
+  setText("#executionConfirmQuarantine", summary.quarantine_count ?? 0);
+  setText("#executionConfirmBlocking", summary.blocking_count ?? 0);
+  setText("#executionConfirmMessage", summary.ok_to_execute
+    ? "确认后才会真正改名或隔离文件。执行仍由后端计划和 plan_hash 校验。"
+    : "当前摘要存在阻止项，不能执行。");
+}
+
+function hideExecutionConfirm() {
+  state.executionConfirmation = null;
+  renderExecutionConfirm(null);
+}
+
+function invalidateExecutionSummary() {
+  state.executionSummary = null;
+  renderExecutionSummary(null);
+  hideExecutionConfirm();
+}
+
+function sameStringList(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
+function showExecutionConfirm(summary, selected) {
+  state.executionConfirmation = {
+    plan_hash: state.plan?.plan_hash || "",
+    selected_item_ids: selected.map((item) => item.id),
+  };
+  renderExecutionConfirm(summary);
+  $("#executionConfirmPanel")?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function scrollToExecutionReport() {
+  $("#executionReportPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function executionReportFromResponse(response) {
   const items = response.items || [];
   const renamed = items.filter((item) => item.operation === "rename" && item.state === "renamed").length;
   const quarantined = items.filter((item) => item.operation === "quarantine" && item.state === "quarantined").length;
   const skipped = items.filter((item) => item.state === "skipped").length;
   const failed = items.filter((item) => item.state === "failed" || item.state === "rollback_failed").length;
+  const operationTimes = (response.operations || []).map((operation) => operation.timestamp).filter(Boolean);
   return {
     run_id: response.run_id,
     state: response.state || "",
@@ -2194,7 +2700,96 @@ function executionReportFromResponse(response) {
     failed,
     rollback_available: renamed + quarantined > 0,
     failed_items: items.filter((item) => item.state === "failed" || item.state === "rollback_failed"),
+    elapsed: "-",
+    completed_at: operationTimes[operationTimes.length - 1] || "-",
   };
+}
+
+function executionReportFromRunDetail(detail) {
+  const items = detail.items || [];
+  const renamed = items.filter((item) => item.operation === "rename" && item.status === "renamed").length;
+  const quarantined = items.filter((item) => item.operation === "quarantine" && item.status === "quarantined").length;
+  const skipped = items.filter((item) => item.status === "skipped").length;
+  const failed = items.filter((item) => item.status === "failed" || item.status === "rollback_failed").length;
+  return {
+    run_id: detail.run_id,
+    state: detail.state || "",
+    renamed,
+    quarantined,
+    skipped,
+    failed,
+    rollback_available: Boolean(detail.rollback_available),
+    failed_items: items
+      .filter((item) => item.status === "failed" || item.status === "rollback_failed")
+      .map((item) => ({
+        plan_item_id: item.plan_item_id,
+        id: item.item_id,
+        message: item.message_code || item.message_summary,
+        issue_code: (item.issue_codes || [])[0] || "",
+      })),
+    elapsed: formatElapsedBetween(detail.created_at, detail.completed_at),
+    completed_at: detail.completed_at || "-",
+  };
+}
+
+function renderExecutionProgress() {
+  const panel = $("#executionProgressPanel");
+  if (!panel) return;
+  const progress = state.executionProgress;
+  panel.hidden = !progress;
+  if (!progress) return;
+  const totalItems = progress.total_items || 0;
+  const completedItems = progress.completed_items || 0;
+  const overall = Math.max(0, Math.min(100, Number(progress.overall_percent || 0)));
+  const filePercent = Math.max(0, Math.min(100, Number(progress.file_percent || 0)));
+  const fileName = progress.current_item_name || "-";
+  setText("#executionProgressTitle", progress.terminal ? "执行已结束" : "执行中");
+  setText("#executionProgressMessage", friendlyMessage(progress.message || progress.phase || "执行中"));
+  setText("#executionProgressPercent", `${overall.toFixed(1)}%`);
+  setText("#executionProgressItems", `${completedItems} / ${totalItems}`);
+  setText("#executionProgressFileName", fileName);
+  setText("#executionProgressBytes", `${formatSize(progress.current_bytes || 0)} / ${formatSize(progress.total_bytes || 0)}`);
+  const overallBar = $("#executionOverallProgressBar");
+  const fileBar = $("#executionFileProgressBar");
+  if (overallBar) overallBar.style.width = `${overall}%`;
+  if (fileBar) fileBar.style.width = `${filePercent}%`;
+}
+
+async function waitForExecutionProgress(runId) {
+  let progress = state.executionProgress;
+  while (!progress?.terminal) {
+    progress = await api(`/api/runs/${runId}/progress`);
+    state.executionProgress = progress;
+    renderExecutionProgress();
+    if (progress.terminal) break;
+    await sleep(700);
+  }
+  return progress;
+}
+
+function formatElapsedBetween(startValue, endValue) {
+  const start = Date.parse(startValue || "");
+  const end = Date.parse(endValue || "");
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return "-";
+  const totalSeconds = Math.max(0, Math.round((end - start) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+}
+
+function mergeExecutionReportRunSummary() {
+  if (!state.executionReport?.run_id || !Array.isArray(state.runs)) return;
+  const run = state.runs.find((entry) => entry.run_id === state.executionReport.run_id);
+  if (!run) return;
+  state.executionReport.state = run.state || run.status || state.executionReport.state;
+  state.executionReport.completed_at = run.completed_at || state.executionReport.completed_at;
+  state.executionReport.rollback_available = Boolean(run.rollback_available);
+  const elapsed = formatElapsedBetween(run.timestamp, run.completed_at);
+  if (elapsed !== "-") {
+    state.executionReport.elapsed = elapsed;
+  }
 }
 
 function renderExecutionReport() {
@@ -2203,14 +2798,22 @@ function renderExecutionReport() {
   const report = state.executionReport;
   panel.hidden = !report;
   if (!report) return;
-  setText("#executionReportRunId", report.run_id || "-");
+  const runIdNode = $("#executionReportRunId");
+  if (runIdNode) {
+    runIdNode.textContent = isDebugMode() ? (report.run_id || "-") : shortId(report.run_id || "-");
+    runIdNode.title = report.run_id || "-";
+  }
   setText("#executionReportState", friendlyCode(report.state || "-"));
   setText("#executionReportRenamed", report.renamed);
   setText("#executionReportQuarantined", report.quarantined);
   setText("#executionReportSkipped", report.skipped);
   setText("#executionReportFailed", report.failed);
   setText("#executionReportRollback", report.rollback_available ? "可回滚" : "无可回滚项");
+  setText("#executionReportElapsed", report.elapsed || "-");
+  setText("#executionReportCompletedAt", report.completed_at || "-");
   const failedList = $("#executionReportFailedItems");
+  const failedBlock = $("#executionReportFailedBlock");
+  if (failedBlock) failedBlock.hidden = !report.failed_items.length;
   if (failedList) {
     failedList.innerHTML = "";
     if (!report.failed_items.length) {
@@ -2381,11 +2984,6 @@ async function executeSelected() {
     toast(buttonState.reason, "warning");
     return;
   }
-  if (isBusy("executing")) return;
-  setBusy("executing", true);
-  setLoading("execute");
-  showFeedback("执行中", { type: "loading" });
-  setStatus("执行中", "loading");
   try {
     const selected = selectedExecutableItems();
     const summary = await showExecutionSummary();
@@ -2394,21 +2992,81 @@ async function executeSelected() {
       setStatus("执行被阻止", "error");
       return;
     }
-    if (!window.confirm(`将执行 ${summary.selected_count} 项。执行前已完成摘要检查，是否继续？`)) return;
-    const response = await api(`/api/plans/${state.plan.plan_id}/execute`, {
+    showExecutionConfirm(summary, selected);
+    toast("请确认执行摘要", "warning");
+    setStatus("等待确认执行", "warning");
+  } catch (error) {
+    toast(`执行摘要失败：${error.message}`, "error");
+    setStatus("执行摘要失败", "error");
+  }
+}
+
+async function confirmExecuteSelected() {
+  const buttonState = getExecuteButtonState();
+  if (!buttonState.enabled) {
+    toast(buttonState.reason, "warning");
+    return;
+  }
+  if (isBusy("executing")) return;
+  const selected = selectedExecutableItems();
+  const selectedIds = selected.map((item) => item.id);
+  const confirmation = state.executionConfirmation;
+  if (!state.executionSummary?.ok_to_execute || !confirmation) {
+    toast("请先查看执行摘要", "warning");
+    await executeSelected();
+    return;
+  }
+  if (confirmation.plan_hash !== state.plan?.plan_hash || !sameStringList(confirmation.selected_item_ids, selectedIds)) {
+    invalidateExecutionSummary();
+    toast("执行摘要已过期，请重新查看摘要", "warning");
+    setStatus("执行摘要已过期", "warning");
+    await executeSelected();
+    return;
+  }
+  setBusy("executing", true);
+  setLoading("execute");
+  showFeedback("执行中", { type: "loading" });
+  setStatus("执行中", "loading");
+  try {
+    const response = await api(`/api/plans/${state.plan.plan_id}/execute/start`, {
       method: "POST",
       body: JSON.stringify({
-        selected_item_ids: selected.map((item) => item.id),
+        selected_item_ids: selectedIds,
         confirm: true,
         plan_hash: state.plan.plan_hash,
       }),
     });
-    state.executionReport = executionReportFromResponse(response);
+    hideExecutionConfirm();
+    state.executionProgress = response.progress || { run_id: response.run_id, state: "running", message: "execution_started" };
+    state.executionReport = {
+      run_id: response.run_id,
+      state: "running",
+      renamed: 0,
+      quarantined: 0,
+      skipped: 0,
+      failed: 0,
+      rollback_available: false,
+      failed_items: [],
+      elapsed: "-",
+      completed_at: "-",
+    };
+    renderExecutionProgress();
     renderExecutionReport();
-    toast("执行完成", "success");
-    setStatus("执行完成", "success");
+    scrollToExecutionReport();
+    toast("执行已开始", "success");
+    setStatus("执行中", "loading");
+    await waitForExecutionProgress(response.run_id);
+    const detail = await api(`/api/runs/${response.run_id}`);
+    state.executionReport = executionReportFromRunDetail(detail);
+    renderExecutionProgress();
+    toast(detail.state === "success" ? "执行完成" : `执行结束：${friendlyCode(detail.state)}`, detail.failed_count ? "warning" : "success");
+    setStatus(detail.state === "success" ? "执行完成" : `执行结束：${friendlyCode(detail.state)}`, detail.failed_count ? "warning" : "success");
     await refreshRuns();
-    await analyze();
+    if (state.plan) state.plan.state = "executed";
+    invalidateExecutionSummary();
+    renderPlan();
+    renderExecutionReport();
+    scrollToExecutionReport();
   } catch (error) {
     toast(`执行失败：${error.message}`, "error");
     setStatus("执行失败", "error");
@@ -2685,7 +3343,9 @@ async function refreshRuns() {
   setBusy("loadingHistory", true);
   try {
     state.runs = await api("/api/runs");
+    mergeExecutionReportRunSummary();
     renderRunsTable();
+    renderExecutionReport();
   } finally {
     setBusy("loadingHistory", false);
   }
@@ -2700,6 +3360,8 @@ async function loadDiagnostics() {
     renderDiagnosticsSummary(state.diagnostics);
     const target = $("#diagnosticsResult");
     if (target) target.textContent = JSON.stringify(state.diagnostics, null, 2);
+    const runtimeTarget = $("#runtimeResult");
+    if (runtimeTarget) runtimeTarget.textContent = JSON.stringify(state.diagnostics?.runtime || {}, null, 2);
     updateSummary();
   } finally {
     setBusy("loadingDiagnostics", false);
@@ -2716,9 +3378,9 @@ async function copyDiagnostics() {
 }
 
 function setupTabs() {
-  for (const button of document.querySelectorAll(".nav-tabs button[data-tab]")) {
+  for (const button of document.querySelectorAll(".sidebar-nav button[data-tab]")) {
     button.addEventListener("click", () => {
-      for (const item of document.querySelectorAll(".nav-tabs button[data-tab]")) item.classList.remove("active");
+      for (const item of document.querySelectorAll(".sidebar-nav button[data-tab]")) item.classList.remove("active");
       for (const panel of document.querySelectorAll(".panel")) panel.classList.remove("active");
       button.classList.add("active");
       document.querySelector(`[data-panel="${button.dataset.tab}"]`).classList.add("active");
@@ -2761,18 +3423,33 @@ function setupReviewControls() {
 
 function bindClick(selector, handler) {
   const node = $(selector);
-  if (node) node.addEventListener("click", () => handler().catch((error) => {
-    toast(error.message, "error");
-    setStatus(error.message, "error");
-  }));
+  if (node) node.addEventListener("click", () => {
+    try {
+      const result = handler();
+      if (result?.catch) {
+        result.catch((error) => {
+          toast(error.message, "error");
+          setStatus(error.message, "error");
+        });
+      }
+    } catch (error) {
+      toast(error.message, "error");
+      setStatus(error.message, "error");
+    }
+  });
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
   setupTabs();
   setupSettingsTabs();
+  setupUiDetailModeControls();
   setupReviewControls();
   $("#filterSelect")?.addEventListener("change", () => {
     state.filter = $("#filterSelect").value;
+    renderPlan();
+  });
+  $("#globalSearch")?.addEventListener("input", () => {
+    state.searchQuery = $("#globalSearch").value || "";
     renderPlan();
   });
   $("#runFilterSelect")?.addEventListener("change", () => {
@@ -2787,12 +3464,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
   bindClick("#folderPickerBtn", chooseFolder);
+  bindClick("#topFolderPickerBtn", chooseFolder);
   bindClick("#analyzeBtn", analyze);
   bindClick("#scanBtn", scan);
   bindClick("#planBtn", plan);
+  bindClick("#refreshPlanBtn", refreshCurrentPlan);
   bindClick("#validateBtn", validatePlan);
   bindClick("#llmBtn", llmSuggest);
   bindClick("#executeBtn", executeSelected);
+  bindClick("#confirmExecuteBtn", confirmExecuteSelected);
+  bindClick("#cancelExecutionBtn", () => {
+    hideExecutionConfirm();
+    toast("已取消执行", "info");
+    setStatus("已取消执行", "info");
+  });
   bindClick("#selectSafeBtn", selectSafeItems);
   bindClick("#clearSelectionBtn", clearSelection);
   bindClick("#exportPlanJsonBtn", exportPlanJson);
@@ -2814,7 +3499,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindClick("#exportSettingsBtn", exportSettings);
   bindClick("#importSettingsDryRunBtn", () => importSettings(true));
   bindClick("#applyImportSettingsBtn", () => importSettings(false));
+  bindClick("#firstRunLearnBtn", toggleFirstRunDetails);
   bindClick("#firstRunDismissBtn", dismissFirstRunHelper);
+  bindClick("#closeDetailDrawerBtn", () => {
+    closeDetailDrawer();
+    setStatus("详情已关闭", "info");
+  });
   bindClick("#refreshDiagnosticsBtn", loadDiagnostics);
   bindClick("#copyDiagnosticsBtn", copyDiagnostics);
   await loadCapabilities().catch(() => {});

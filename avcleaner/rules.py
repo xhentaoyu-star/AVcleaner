@@ -6,7 +6,16 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .constants import AD_DOMAIN_PATTERNS, JUNK_EXTENSIONS, RULE_TRACE_IDS, SIDECAR_EXTENSIONS, TEXT_JUNK_EXTENSIONS, VIDEO_EXTENSIONS
+from .constants import (
+    AD_DOMAIN_PATTERNS,
+    JUNK_EXTENSIONS,
+    LARGE_TEMP_JUNK_EXTENSIONS,
+    LARGE_TEMP_JUNK_REVIEW_BYTES,
+    RULE_TRACE_IDS,
+    SIDECAR_EXTENSIONS,
+    TEXT_JUNK_EXTENSIONS,
+    VIDEO_EXTENSIONS,
+)
 from .models import FileItem, PlanItem, PlanRequest, PlanResponse, RuleConfig, RuleSuggestion, RuleTraceStep
 from .paths import normalize_extension
 from .scanner import file_id
@@ -129,7 +138,7 @@ def clean_id(prefix: str, number: str, *, keep_underscore: bool = False) -> str 
     if p in NOISE_PREFIXES:
         return None
     if p == "FC2PPV":
-        return f"FC2PPV-{n}"
+        return f"FC2-PPV-{n}"
     if keep_underscore:
         return f"{p}_{n}"
     return f"{p}-{n}"
@@ -229,7 +238,7 @@ def parse_tail(text: str, match_end: int) -> tuple[str, str]:
 
 def _candidate_from_match(pattern_name: str, match: re.Match[str], text: str) -> CodeCandidate | None:
     if pattern_name == "fc2":
-        code = f"FC2PPV-{match.group(1)}"
+        code = f"FC2-PPV-{match.group(1)}"
         confidence = 0.95
     elif pattern_name == "numeric_underscore":
         code = f"{match.group(1)}_{match.group(2)}"
@@ -513,6 +522,10 @@ def is_junk_file(item: FileItem, custom_keywords: list[str], trash_zero_byte: bo
     return False, ""
 
 
+def large_temp_junk_requires_review(item: FileItem) -> bool:
+    return normalize_extension(item.extension) in LARGE_TEMP_JUNK_EXTENSIONS and item.size >= LARGE_TEMP_JUNK_REVIEW_BYTES
+
+
 def build_suggested_name(code_info: CodeInfo, extension: str) -> str:
     return f"{code_info.code}{code_info.part_suffix}{code_info.variant}{extension.lower()}"
 
@@ -531,6 +544,7 @@ def build_plan(request: PlanRequest) -> PlanResponse:
         confidence = 1.0
         reason = "kept"
         warnings: list[str] = []
+        requires_review = False
         media_code = ""
         part_suffix = ""
         variant = ""
@@ -548,6 +562,10 @@ def build_plan(request: PlanRequest) -> PlanResponse:
             confidence = 0.96
             reason = junk_reason
             checked = True
+            if large_temp_junk_requires_review(file_item):
+                checked = False
+                requires_review = True
+                warnings.append("large_temp_file_requires_manual_selection")
         elif ext in VIDEO_EXTENSIONS or file_item.kind == "media":
             suggestion = suggest_name_with_trace(file_item.name, request.rules)
             trace = suggestion.trace
@@ -588,6 +606,8 @@ def build_plan(request: PlanRequest) -> PlanResponse:
                 reason=reason,
                 warnings=warnings,
                 checked=checked,
+                selected_default=checked,
+                requires_review=requires_review,
                 relative_path=file_item.relative_path,
                 extension=ext,
                 size=file_item.size,

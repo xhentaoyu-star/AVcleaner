@@ -11,6 +11,7 @@ from avcleaner.planner import create_plan
 from avcleaner.repository import create_scan
 from avcleaner.scanner import scan_files
 from avcleaner.settings_store import get_settings, put_settings
+from avcleaner.quarantine import quarantine_item
 
 
 def test_quarantine_uses_default_runtime_directory_and_manifest(tmp_path: Path) -> None:
@@ -54,6 +55,27 @@ def test_quarantine_uses_configured_directory_and_manifest(tmp_path: Path) -> No
     with connect() as conn:
         row = conn.execute("SELECT quarantine_abs_path FROM quarantine_manifests WHERE run_id = ?", (response.run_id,)).fetchone()
     assert row["quarantine_abs_path"] == run_item.target_path
+
+
+def test_quarantine_reports_move_progress(tmp_path: Path) -> None:
+    source_root = tmp_path / "source"
+    make_file(source_root, "ad.url", b"[InternetShortcut]")
+    scan = create_scan(ScanRequest(root_path=str(source_root)), scan_files(ScanRequest(root_path=str(source_root))))
+    plan = create_plan(PlanRequest(scan_id=scan.scan_id))
+    events: list[tuple[int, int]] = []
+
+    target, _manifest = quarantine_item(
+        "run_progress_contract",
+        source_root,
+        plan.items[0],
+        str(tmp_path / "custom-quarantine"),
+        progress_callback=lambda copied, total: events.append((copied, total)),
+    )
+
+    assert target.exists()
+    assert events
+    assert events[-1][0] == events[-1][1]
+    assert events[-1][1] > 0
 
 
 def test_scanner_ignores_quarantine_directory(tmp_path: Path) -> None:

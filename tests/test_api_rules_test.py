@@ -29,7 +29,7 @@ def test_rules_test_returns_suggestion_and_trace(client, auth_headers: dict[str,
 
     assert response.status_code == 200
     body = response.json()
-    assert body["suggestion"]["suggested_name"] == "FC2PPV-1234567-1.mp4"
+    assert body["suggestion"]["suggested_name"] == "FC2-PPV-1234567-1.mp4"
     assert body["suggestion"]["trace"]
     assert isinstance(body["validation_preview"], list)
 

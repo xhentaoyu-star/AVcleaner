@@ -20,6 +20,6 @@ def test_release_checklist_documents_final_zip_smoke_commands() -> None:
     text = (ROOT / "RELEASE_CHECKLIST.md").read_text(encoding="utf-8")
 
     assert "smoke_release_zip.ps1" in text
-    assert "AVcleaner-v0.7.4-portable-win-x64.zip" in text
+    assert "AVcleaner-v0.7.5-portable-win-x64.zip" in text
     assert "Get-FileHash" in text
     assert "SHA256" in text

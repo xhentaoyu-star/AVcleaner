@@ -10,8 +10,8 @@ def test_suggest_name_with_trace_returns_structured_suggestion() -> None:
     suggestion = suggest_name_with_trace("[abc.com] FC2-PPV-4856696_1 1080p.mp4")
 
     assert isinstance(suggestion, RuleSuggestion)
-    assert suggestion.suggested_name == "FC2PPV-4856696-1.mp4"
-    assert suggestion.media_code == "FC2PPV-4856696"
+    assert suggestion.suggested_name == "FC2-PPV-4856696-1.mp4"
+    assert suggestion.media_code == "FC2-PPV-4856696"
     assert suggestion.part_suffix == "-1"
     assert suggestion.trace
 
@@ -51,4 +51,4 @@ def test_fc2_variants_normalize_to_single_format() -> None:
         "FC2PPV1234567.mp4",
     ]
 
-    assert {suggest_name_with_trace(name).suggested_name for name in names} == {"FC2PPV-1234567.mp4"}
+    assert {suggest_name_with_trace(name).suggested_name for name in names} == {"FC2-PPV-1234567.mp4"}

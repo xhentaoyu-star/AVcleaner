@@ -31,7 +31,7 @@ def test_same_scan_same_settings_same_rule_output_has_same_plan_hash(tmp_path: P
 def test_changing_target_name_changes_plan_hash(tmp_path: Path) -> None:
     plan = persisted_plan(tmp_path)
     item = plan.items[0]
-    changed = item.model_copy(update={"target_name": "FC2PPV-4856696-2.mp4", "suggested_name": "FC2PPV-4856696-2.mp4"})
+    changed = item.model_copy(update={"target_name": "FC2-PPV-4856696-2.mp4", "suggested_name": "FC2-PPV-4856696-2.mp4"})
 
     assert compute_plan_hash([item]) != compute_plan_hash([changed])
 

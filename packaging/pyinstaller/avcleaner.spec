@@ -3,6 +3,7 @@
 from pathlib import Path
 
 ROOT = Path(SPECPATH).parents[1]
+ICON = ROOT / "packaging" / "pyinstaller" / "avcleaner.ico"
 
 datas = [
     (str(ROOT / "avcleaner" / "templates"), "avcleaner/templates"),
@@ -48,6 +49,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
+    icon=str(ICON),
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

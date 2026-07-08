@@ -24,7 +24,7 @@ from .models import (
     RuleTraceStep,
 )
 from .repository import get_plan, get_scan, mark_llm_suggestions_stale, new_id, save_plan
-from .rules import is_junk_file, suggest_name_with_trace
+from .rules import is_junk_file, large_temp_junk_requires_review, suggest_name_with_trace
 from .sidecars import classify_sidecar_type, group_id_for_media_code
 from .validators import validate_filename, validate_plan_items
 
@@ -100,6 +100,8 @@ def _review_reason_codes(item: PlanItem) -> list[str]:
         codes.append("low_confidence")
     if item.requires_review and not item.media_code and item.action in {Operation.REVIEW, "review"}:
         codes.append("media_code_not_detected")
+    if item.requires_review and item.action in {Operation.QUARANTINE, "quarantine"} and large_temp_junk_requires_review(item):
+        codes.append("large_temp_file_requires_manual_selection")
     codes.extend(str(warning) for warning in item.warnings if warning)
     codes.extend(str(issue.code) for issue in item.issues if issue.blocking)
     return sorted(set(codes))
@@ -229,6 +231,10 @@ def plan_item_from_scan(plan_id: str, root: Path, item: ScanItem, rules: RuleCon
         confidence = 0.96
         reason = junk_reason
         checked = True
+        if large_temp_junk_requires_review(item):
+            checked = False
+            requires_review = True
+            warnings.append("large_temp_file_requires_manual_selection")
     elif item.kind == "media":
         suggestion = suggest_name_with_trace(item.name, rules)
         trace = suggestion.trace

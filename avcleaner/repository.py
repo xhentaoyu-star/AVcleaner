@@ -534,16 +534,35 @@ def set_local_ui_state(key: str, value: str) -> dict:
 
 def mark_interrupted_runs() -> int:
     with connect() as conn:
-        cursor = conn.execute(
-            """
-            UPDATE runs
-            SET state = ?, status = ?, updated_at = ?
-            WHERE state IN (?, ?)
-            """,
-            (RunState.INTERRUPTED, RunState.INTERRUPTED, utc_now_iso(), RunState.RUNNING, RunState.ROLLBACK_RUNNING),
-        )
+        rows = conn.execute(
+            "SELECT run_id FROM runs WHERE state IN (?, ?)",
+            (RunState.RUNNING, RunState.ROLLBACK_RUNNING),
+        ).fetchall()
+        now = utc_now_iso()
+        for row in rows:
+            run_id = row["run_id"]
+            conn.execute(
+                """
+                UPDATE run_items
+                SET state = ?, message = ?, issue_code = ?, updated_at = ?
+                WHERE run_id = ? AND state = ?
+                """,
+                (RunItemState.FAILED, "operation_interrupted", "operation_interrupted", now, run_id, RunItemState.PENDING),
+            )
+            item_rows = conn.execute("SELECT state, COUNT(*) AS count FROM run_items WHERE run_id = ? GROUP BY state", (run_id,)).fetchall()
+            summary = {item_row["state"]: int(item_row["count"]) for item_row in item_rows}
+            rollback_available = int(_run_has_rollbackable_summary(summary))
+            conn.execute(
+                """
+                UPDATE runs
+                SET state = ?, status = ?, summary = ?, updated_at = ?, completed_at = ?,
+                    rollback_available = ?
+                WHERE run_id = ?
+                """,
+                (RunState.INTERRUPTED, RunState.INTERRUPTED, dumps(summary), now, now, rollback_available, run_id),
+            )
         conn.commit()
-        return cursor.rowcount
+        return len(rows)
 
 
 def save_quarantine_manifest(manifest: QuarantineManifest) -> None:

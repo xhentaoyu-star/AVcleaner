@@ -24,5 +24,6 @@ def test_toast_feedback_redacts_sensitive_patterns() -> None:
 def test_toast_uses_sanitized_text_only() -> None:
     text = APP_JS.read_text(encoding="utf-8")
 
-    assert "node.textContent = text" in text
+    assert "toast.textContent = safeToastMessage(message)" in text
+    assert "function safeToastMessage" in text
     assert "sanitizeFeedbackMessage(friendlyMessage(message))" in text

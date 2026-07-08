@@ -8,7 +8,7 @@ def test_letter_segment_suffixes_are_preserved() -> None:
         "FSVSS-004-A.mp4": "FSVSS-004-A.mp4",
         "FSVSS-004-B.mp4": "FSVSS-004-B.mp4",
         "FSVSS004-b.mp4": "FSVSS-004-B.mp4",
-        "FC2-PPV-1234567-A.mp4": "FC2PPV-1234567-A.mp4",
+        "FC2-PPV-1234567-A.mp4": "FC2-PPV-1234567-A.mp4",
         "HEYZO-1234-A.mp4": "HEYZO-1234-A.mp4",
     }
 

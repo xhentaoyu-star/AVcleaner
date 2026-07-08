@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import os
-import shutil
+import errno
 from pathlib import Path
+from typing import Callable
 
 from .models import PlanItem, QuarantineManifest
 from .paths import quarantine_root, safe_relative_path
 from .repository import save_quarantine_manifest
+
+ProgressCallback = Callable[[int, int], None]
 
 
 def _is_writable_dir(path: Path) -> bool:
@@ -37,7 +40,45 @@ def choose_quarantine_root(scan_root: Path, source_path: Path, run_id: str, cust
     return fallback
 
 
-def quarantine_item(run_id: str, scan_root: Path, item: PlanItem, custom_dir: str = "") -> tuple[Path, QuarantineManifest]:
+def _move_file_with_progress(source: Path, target: Path, progress_callback: ProgressCallback | None = None) -> None:
+    total = source.stat().st_size
+    try:
+        source.replace(target)
+        if progress_callback:
+            progress_callback(total, total)
+        return
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+
+    copied = 0
+    copy_complete = False
+    try:
+        with source.open("rb") as src, target.open("xb") as dst:
+            while True:
+                chunk = src.read(8 * 1024 * 1024)
+                if not chunk:
+                    break
+                dst.write(chunk)
+                copied += len(chunk)
+                if progress_callback:
+                    progress_callback(copied, total)
+        copy_complete = True
+        os.utime(target, ns=(source.stat().st_atime_ns, source.stat().st_mtime_ns))
+        source.unlink()
+    except Exception:
+        if not copy_complete:
+            target.unlink(missing_ok=True)
+        raise
+
+
+def quarantine_item(
+    run_id: str,
+    scan_root: Path,
+    item: PlanItem,
+    custom_dir: str = "",
+    progress_callback: ProgressCallback | None = None,
+) -> tuple[Path, QuarantineManifest]:
     source = Path(item.source_path).resolve(strict=False)
     root = choose_quarantine_root(scan_root, source, run_id, custom_dir)
     relative = safe_relative_path(source, scan_root)
@@ -45,7 +86,7 @@ def quarantine_item(run_id: str, scan_root: Path, item: PlanItem, custom_dir: st
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         target = target.with_name(f"{target.stem}__duplicate_{run_id[:8]}{target.suffix}")
-    shutil.move(str(source), str(target))
+    _move_file_with_progress(source, target, progress_callback)
     snapshot = item.snapshot
     manifest = QuarantineManifest(
         run_id=run_id,

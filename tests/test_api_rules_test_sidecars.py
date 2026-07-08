@@ -16,8 +16,8 @@ def test_rules_test_returns_sidecar_language_trace(client, auth_headers: dict[st
 
     assert response.status_code == 200
     suggestion = response.json()["suggestion"]
-    assert suggestion["suggested_name"] == "FC2PPV-4856696-1.zh-CN.srt"
-    assert suggestion["media_code"] == "FC2PPV-4856696"
+    assert suggestion["suggested_name"] == "FC2-PPV-4856696-1.zh-CN.srt"
+    assert suggestion["media_code"] == "FC2-PPV-4856696"
     assert suggestion["part_suffix"] == "-1"
     assert suggestion["variant"] == ""
     assert suggestion["language_suffix"] == "zh-CN"

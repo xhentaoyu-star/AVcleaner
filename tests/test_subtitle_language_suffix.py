@@ -15,8 +15,8 @@ from avcleaner.rules import suggest_name_with_trace
         ("ABP-123.ja.srt", "ABP-123.ja.srt", "ABP-123", "", "", "ja"),
         ("ABP-123.zh-CN.srt", "ABP-123.zh-CN.srt", "ABP-123", "", "", "zh-CN"),
         ("ABP-123.zh_TW.ass", "ABP-123.zh_TW.ass", "ABP-123", "", "", "zh_TW"),
-        ("FC2PPV-4856696.zh-Hans.srt", "FC2PPV-4856696.zh-Hans.srt", "FC2PPV-4856696", "", "", "zh-Hans"),
-        ("FC2-PPV-4856696_1.zh-CN.srt", "FC2PPV-4856696-1.zh-CN.srt", "FC2PPV-4856696", "-1", "", "zh-CN"),
+        ("FC2PPV-4856696.zh-Hans.srt", "FC2-PPV-4856696.zh-Hans.srt", "FC2-PPV-4856696", "", "", "zh-Hans"),
+        ("FC2-PPV-4856696_1.zh-CN.srt", "FC2-PPV-4856696-1.zh-CN.srt", "FC2-PPV-4856696", "-1", "", "zh-CN"),
         ("HEYZO-1234-C.en.srt", "HEYZO-1234-C.en.srt", "HEYZO-1234", "", "-C", "en"),
     ],
 )

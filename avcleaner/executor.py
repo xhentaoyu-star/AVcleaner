@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .enums import IssueCode, Operation, PlanState, RunItemState, RunState
 from .errors import AppError
+from .execution_progress import complete_item, finish_progress, start_item, start_progress, update_file_progress, update_progress
 from .models import ExecuteRequest, ExecuteResponse, ExecutionItem, ExecutionRun, OperationRecord, PlanExecuteRequest
 from .planner import validate_stored_plan
 from .quarantine import quarantine_item
@@ -40,7 +41,7 @@ def _operation_record(item: ExecutionItem) -> OperationRecord:
     )
 
 
-def execute_plan_by_id(plan_id: str, request: PlanExecuteRequest) -> ExecuteResponse:
+def validate_execute_request(plan_id: str, request: PlanExecuteRequest):
     if not request.confirm:
         raise AppError("confirm_required", 400)
     original = get_plan(plan_id)
@@ -62,8 +63,19 @@ def execute_plan_by_id(plan_id: str, request: PlanExecuteRequest) -> ExecuteResp
     selected = [item for item in validated.items if item.id in requested_ids]
     if any(has_blocking_issues(item) for item in selected):
         raise AppError(IssueCode.BLOCKING_ITEM_SELECTED, 400)
+    return validated, selected
+
+
+def execute_plan_by_id(plan_id: str, request: PlanExecuteRequest, *, run_id: str | None = None) -> ExecuteResponse:
+    try:
+        validated, selected = validate_execute_request(plan_id, request)
+    except Exception:
+        if run_id:
+            update_progress(run_id, state=str(RunState.FAILED), phase="validation", message="validation_failed", error_code="validation_failed")
+        raise
     settings = get_settings()
-    run_id = new_id("run")
+    run_id = run_id or new_id("run")
+    start_progress(run_id, plan_id, len(selected))
     run = create_run(
         ExecutionRun(
             run_id=run_id,
@@ -75,7 +87,15 @@ def execute_plan_by_id(plan_id: str, request: PlanExecuteRequest) -> ExecuteResp
     )
 
     completed: list[ExecutionItem] = []
-    for item in selected:
+    for index, item in enumerate(selected):
+        start_item(
+            run_id,
+            item_id=item.id,
+            item_name=item.original_name,
+            operation=str(item.action),
+            completed_items=len(completed),
+            total_items=len(selected),
+        )
         run_item = ExecutionItem(
             id=new_id("runitem"),
             run_id=run_id,
@@ -97,10 +117,12 @@ def execute_plan_by_id(plan_id: str, request: PlanExecuteRequest) -> ExecuteResp
         except Exception:
             run_item = upsert_run_item(run_item.model_copy(update={"state": RunItemState.FAILED, "message": "operation_failed"}))
         completed.append(run_item)
+        complete_item(run_id, index + 1, len(selected), str(run_item.message or run_item.state))
 
     summary = summarize_item_states(completed)
     final_state = _final_run_state(completed)
     update_run_state(run_id, final_state, summary)
+    finish_progress(run_id, str(final_state), summary)
     if completed:
         update_plan_state(plan_id, PlanState.EXECUTED)
     return ExecuteResponse(
@@ -136,7 +158,13 @@ def _execute_quarantine_item(run_item: ExecutionItem, scan_root: Path, item, qua
     source = Path(item.source_path).resolve(strict=False)
     if not source.exists():
         return upsert_run_item(run_item.model_copy(update={"state": RunItemState.FAILED, "message": "source_missing", "issue_code": IssueCode.SOURCE_MISSING}))
-    target, _manifest = quarantine_item(run_item.run_id, scan_root, item, quarantine_dir)
+    target, _manifest = quarantine_item(
+        run_item.run_id,
+        scan_root,
+        item,
+        quarantine_dir,
+        progress_callback=lambda copied, total: update_file_progress(run_item.run_id, copied, total),
+    )
     return upsert_run_item(
         run_item.model_copy(update={"state": RunItemState.QUARANTINED, "message": "quarantined", "target_path": str(target)})
     )

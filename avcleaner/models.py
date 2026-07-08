@@ -65,7 +65,7 @@ class RuleSettings(StrictModel):
     enabled_rules: dict[str, bool] = Field(default_factory=_default_enabled_rules)
     output_template: str = "{code}{part}{variant}{language}{ext}"
     media_code_style: Literal["standard", "preserve_existing"] = "standard"
-    fc2_style: Literal["FC2PPV-1234567"] = "FC2PPV-1234567"
+    fc2_style: Literal["FC2-PPV-1234567"] = "FC2-PPV-1234567"
     preserve_extension: bool = True
     preserve_part_suffix: bool = True
     preserve_variant: bool = True
@@ -100,6 +100,13 @@ class RuleSettings(StrictModel):
     @classmethod
     def validate_output_template(cls, value: str) -> str:
         return _validate_output_template(value)
+
+    @field_validator("fc2_style", mode="before")
+    @classmethod
+    def normalize_fc2_style(cls, value: str) -> str:
+        if value == "FC2PPV-1234567":
+            return "FC2-PPV-1234567"
+        return value
 
     @field_validator("video_extensions", "junk_extensions")
     @classmethod
@@ -197,7 +204,7 @@ class LLMSettings(StrictModel):
     api_key: str = ""
     model: str = ""
     temperature: float = 0.0
-    max_batch_size: int = 20
+    max_batch_size: int = 10
     max_concurrency: int = 2
     send_full_path: bool = False
     min_confidence: float = 0.7
@@ -626,6 +633,7 @@ class PlanLLMSuggestRequest(StrictModel):
     item_ids: list[str]
     include_neighbors: bool = True
     use_cache: bool = True
+    allow_partial_failures: bool = False
 
 
 class LLMSuggestionRequest(StrictModel):

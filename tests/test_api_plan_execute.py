@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from conftest import make_file
@@ -29,6 +30,42 @@ def test_api_scan_plan_execute_and_runs(tmp_path: Path, client, auth_headers) ->
     runs = client.get("/api/runs", headers=auth_headers)
     assert runs.status_code == 200
     assert runs.json()
+
+
+def test_api_execute_start_exposes_progress_until_terminal(tmp_path: Path, client, auth_headers) -> None:
+    make_file(tmp_path, "hhd800.com@ABP-124.mp4")
+    _scan, plan = create_scan_and_plan(client, auth_headers, tmp_path)
+    selected = [item["id"] for item in plan["items"] if item["checked"]]
+
+    started = client.post(
+        f"/api/plans/{plan['plan_id']}/execute/start",
+        json={"selected_item_ids": selected, "confirm": True, "plan_hash": plan["plan_hash"]},
+        headers=auth_headers,
+    )
+
+    assert started.status_code == 200
+    run_id = started.json()["run_id"]
+    assert started.json()["progress"]["total_items"] == 1
+
+    progress = None
+    for _ in range(30):
+        progress_response = client.get(f"/api/runs/{run_id}/progress", headers=auth_headers)
+        assert progress_response.status_code == 200
+        progress = progress_response.json()
+        assert progress["run_id"] == run_id
+        assert "source_path" not in progress
+        assert "target_path" not in progress
+        if progress["terminal"]:
+            break
+        time.sleep(0.1)
+
+    assert progress is not None
+    assert progress["terminal"] is True
+    assert progress["state"] == "success"
+    assert progress["completed_items"] == 1
+    detail = client.get(f"/api/runs/{run_id}", headers=auth_headers)
+    assert detail.status_code == 200
+    assert detail.json()["state"] == "success"
 
 
 def test_legacy_execute_is_disabled(tmp_path: Path, client, auth_headers) -> None:

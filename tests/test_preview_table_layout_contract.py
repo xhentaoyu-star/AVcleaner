@@ -14,7 +14,7 @@ def test_preview_table_uses_stable_columns_and_internal_scroll() -> None:
     css = CSS.read_text(encoding="utf-8")
 
     assert 'class="preview-table review-table"' in html
-    assert 'class="review-layout"' in html
+    assert 'class="review-workbench review-layout"' in html
     assert "<colgroup>" in html
     for column in [
         "col-select",
@@ -23,6 +23,7 @@ def test_preview_table_uses_stable_columns_and_internal_scroll() -> None:
         "col-target",
         "col-source",
         "col-review",
+        "col-risk",
         "col-actions",
     ]:
         assert column in html
@@ -31,7 +32,7 @@ def test_preview_table_uses_stable_columns_and_internal_scroll() -> None:
     assert "table-layout: fixed" in css
     assert "overflow: auto" in css
     assert "text-overflow: ellipsis" in css
-    assert "grid-template-columns: minmax(560px, 1fr) clamp(320px, 30vw, 460px)" in css
+    assert "grid-template-columns: minmax(760px, 1fr) 380px" in css
 
 
 def test_preview_rows_move_long_content_out_of_table_body() -> None:
@@ -43,5 +44,6 @@ def test_preview_rows_move_long_content_out_of_table_body() -> None:
     assert "review-summary two-line" in text
     assert "truncate" in text
     assert "cellLlmSuggestion(item)" not in text
-    assert 'detailSection("Trace", renderTraceList(item))' in text
+    assert 'summary.textContent = "Debug 信息"' in text
+    assert "renderTraceList(item)" in text
     assert "JSON.stringify(item" in text

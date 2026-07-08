@@ -43,3 +43,9 @@ def test_rule_settings_reject_duplicate_extensions_case_insensitively() -> None:
         RuleSettings.model_validate({"sidecar_extensions": {"subtitle": [".srt", ".SRT"]}})
 
     assert exc.value.errors()[0]["ctx"]["error_code"] == "rule_settings_duplicate_extension"
+
+
+def test_rule_settings_migrates_legacy_fc2_style() -> None:
+    settings = RuleSettings.model_validate({"fc2_style": "FC2PPV-1234567"})
+
+    assert settings.fc2_style == "FC2-PPV-1234567"

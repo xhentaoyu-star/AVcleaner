@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets as stdlib_secrets
+from concurrent.futures import ThreadPoolExecutor
 from collections import Counter
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,7 +18,8 @@ from . import __version__
 from .constants import JUNK_EXTENSIONS, SIDECAR_EXTENSIONS, TEXT_JUNK_EXTENSIONS, VIDEO_EXTENSIONS
 from .enums import IssueCode
 from .errors import AppError
-from .executor import execute_plan_by_id, rollback_run
+from .execution_progress import get_progress, start_progress, update_progress
+from .executor import execute_plan_by_id, rollback_run, validate_execute_request
 from .llm import check_llm_settings, suggest_with_llm
 from .models import (
     AnalyzeRequest,
@@ -75,6 +77,7 @@ from .repository import (
     list_recent_folders,
     list_runs,
     mark_interrupted_runs,
+    new_id,
     set_local_ui_state,
     upsert_recent_folder,
 )
@@ -89,6 +92,7 @@ from .validators import validate_filename
 
 PACKAGE_DIR = Path(__file__).parent
 API_TOKEN = stdlib_secrets.token_urlsafe(32)
+EXECUTION_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="avcleaner-execute")
 
 
 @asynccontextmanager
@@ -215,7 +219,29 @@ def capabilities() -> dict:
             "ui_explanation_coverage",
             "diagnostics_summary",
             "quarantine_reason_explanations",
+            "fixed_workbench_layout",
+            "desktop_window_baseline",
+            "right_detail_stack",
+            "compact_execution_module",
+            "workbench_visual_redesign",
+            "simple_ui_mode",
+            "debug_ui_mode",
+            "progressive_disclosure",
+            "compact_execution_section",
+            "user_focused_workbench",
+            "sidebar_layout",
+            "opena_ver_inspired_shell",
+            "centered_card_workbench",
         ],
+        "desktop_window": {
+            "default_width": 1440,
+            "default_height": 900,
+            "minimum_width": 1280,
+            "minimum_height": 760,
+            "recommended_width": 1440,
+            "recommended_height": 900,
+            "content_max_width": 1080,
+        },
         "video_extensions": sorted(VIDEO_EXTENSIONS),
         "sidecar_extensions": sorted(SIDECAR_EXTENSIONS),
         "junk_extensions": sorted(JUNK_EXTENSIONS),
@@ -291,6 +317,19 @@ def capabilities() -> dict:
             "toast_feedback": True,
             "detail_drawer": True,
             "responsive_table": True,
+            "fixed_workbench_layout": True,
+            "desktop_window_baseline": True,
+            "right_detail_stack": True,
+            "compact_execution_module": True,
+            "workbench_visual_redesign": True,
+            "simple_ui_mode": True,
+            "debug_ui_mode": True,
+            "progressive_disclosure": True,
+            "compact_execution_section": True,
+            "user_focused_workbench": True,
+            "sidebar_layout": True,
+            "opena_ver_inspired_shell": True,
+            "centered_card_workbench": True,
         },
     }
 
@@ -484,7 +523,7 @@ async def api_analyze(request: AnalyzeRequest, _token: None = Depends(require_to
                 try:
                     suggestions = await generate_llm_suggestions(
                         record.plan_id,
-                        PlanLLMSuggestRequest(item_ids=item_ids, include_neighbors=True, use_cache=True),
+                        PlanLLMSuggestRequest(item_ids=item_ids, include_neighbors=True, use_cache=True, allow_partial_failures=True),
                     )
                     record = apply_llm_suggestions_to_preview(
                         record.plan_id,
@@ -605,6 +644,48 @@ def api_execute_plan(plan_id: str, request: PlanExecuteRequest, _token: None = D
         return execute_plan_by_id(plan_id, request)
     except KeyError as exc:
         raise AppError("plan_not_found", 404) from exc
+
+
+def _run_execute_background(plan_id: str, request: PlanExecuteRequest, run_id: str) -> None:
+    try:
+        execute_plan_by_id(plan_id, request, run_id=run_id)
+    except Exception as exc:
+        update_progress(run_id, state="failed", phase="failed", message="execution_failed", error_code=getattr(exc, "error_code", "execution_failed"))
+
+
+@app.post("/api/plans/{plan_id}/execute/start")
+def api_execute_plan_start(plan_id: str, request: PlanExecuteRequest, _token: None = Depends(require_token)):
+    try:
+        _validated, selected = validate_execute_request(plan_id, request)
+    except KeyError as exc:
+        raise AppError("plan_not_found", 404) from exc
+    run_id = new_id("run")
+    progress = start_progress(run_id, plan_id, len(selected))
+    EXECUTION_POOL.submit(_run_execute_background, plan_id, request, run_id)
+    return {"run_id": run_id, "state": "running", "progress": progress}
+
+
+@app.get("/api/runs/{run_id}/progress")
+def api_run_progress(run_id: str, _token: None = Depends(require_token)):
+    progress = get_progress(run_id)
+    if progress:
+        return progress
+    try:
+        run = build_run_detail(run_id)
+    except KeyError as exc:
+        raise AppError("run_not_found", 404) from exc
+    summary = run.get("summary") or {}
+    return {
+        "run_id": run_id,
+        "state": run.get("state") or run.get("status") or "",
+        "phase": "done",
+        "message": "history",
+        "total_items": sum(summary.values()) if isinstance(summary, dict) else 0,
+        "completed_items": sum(summary.values()) if isinstance(summary, dict) else 0,
+        "terminal": True,
+        "file_percent": 0,
+        "overall_percent": 100,
+    }
 
 
 @app.post("/api/execute")

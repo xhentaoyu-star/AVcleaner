@@ -6,7 +6,7 @@ def test_capabilities_exposes_v070_release_features(client) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["version"] == "0.7.4"
+    assert body["version"] == "0.8.0"
     assert body["capabilities"]["manual_review"] is True
     assert body["capabilities"]["persisted_selection"] is True
     assert body["capabilities"]["plan_export"] is True
@@ -47,3 +47,11 @@ def test_capabilities_exposes_v070_release_features(client) -> None:
     assert body["capabilities"]["toast_feedback"] is True
     assert body["capabilities"]["detail_drawer"] is True
     assert body["capabilities"]["responsive_table"] is True
+    assert body["capabilities"]["fixed_workbench_layout"] is True
+    assert body["capabilities"]["desktop_window_baseline"] is True
+    assert body["capabilities"]["right_detail_stack"] is True
+    assert body["capabilities"]["compact_execution_module"] is True
+    assert body["capabilities"]["workbench_visual_redesign"] is True
+    assert body["capabilities"]["simple_ui_mode"] is True
+    assert body["capabilities"]["debug_ui_mode"] is True
+    assert body["capabilities"]["progressive_disclosure"] is True

@@ -210,7 +210,10 @@ async def _suggest_openai_compatible(items: list[LLMSuggestItem], settings: LLMS
         }
     url = settings.base_url.rstrip("/") + "/chat/completions"
     async with httpx.AsyncClient(timeout=capabilities.default_timeout_seconds) as client:
-        response = await client.post(url, headers=headers, json=body)
+        try:
+            response = await client.post(url, headers=headers, json=body)
+        except httpx.TimeoutException as exc:
+            raise TimeoutError("LLM provider timed out") from exc
         response.raise_for_status()
     data = response.json()
     content = data["choices"][0]["message"].get("content", "")
@@ -234,7 +237,10 @@ async def _suggest_ollama(items: list[LLMSuggestItem], settings: LLMSettings) ->
         "options": {"temperature": settings.temperature},
     }
     async with httpx.AsyncClient(timeout=capabilities.default_timeout_seconds) as client:
-        response = await client.post(f"{base_url}/api/chat", json=body)
+        try:
+            response = await client.post(f"{base_url}/api/chat", json=body)
+        except httpx.TimeoutException as exc:
+            raise TimeoutError("LLM provider timed out") from exc
         response.raise_for_status()
     data = response.json()
     content = data.get("message", {}).get("content", "")

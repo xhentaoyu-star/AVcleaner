@@ -2,12 +2,26 @@
 
 AVcleaner is a local Windows desktop-style app for safely cleaning downloaded media filenames before they enter a media library. It focuses on local preview, manual review, execution history, rollback, and reports.
 
-Current version: `0.7.4`.
+Current version: `0.8.0`.
 
 AVcleaner intentionally does not scrape metadata, download covers, generate NFO files, move files into a final media library, organize actor/studio/category folders, or integrate with OpenAver databases.
 
-## What v0.7.4 Adds
+## What v0.8.0 Adds
 
+- Default workbench mode is now a simple daily-use view. Scan ID, Plan ID, full hash, raw JSON, Trace, endpoint flags, runtime diagnostics, and internal IDs stay out of the visible workflow.
+- Advanced diagnostics remain available through the hidden local shortcut `Ctrl+Shift+D`. This local UI state is not exported in settings and is not sent to LLM providers.
+- First-use safety help is now a compact one-line safety bar with expandable details instead of a large block.
+- Summary cards use progressive disclosure: total files, rename, quarantine, selected, and blocking stay visible; warning, review, manual edit, and sidecar cards appear only when relevant in simple mode.
+- The execution report appears only after an execution starts or completes. Empty run_id/status/result boxes are no longer shown before execution.
+- Settings show human summaries first. Raw LLM test JSON, settings import/export JSON, capability flags, and diagnostics JSON are collapsed under advanced/debug sections.
+
+## What v0.7.5 Added
+
+- Fixed-resolution desktop workbench layout optimized for 1440 x 900, with a minimum supported viewport of 1280 x 760. Very wide screens keep the content capped instead of stretching endlessly.
+- Strong module zones: top navigation, command bar, KPI strip, compact review table, right-side detail stack, compact execution module, and bottom local-status bar.
+- Main review table now keeps long names, paths, Trace, AI details, and raw Debug data out of table cells. Short summaries stay in the table; full details live in the right panel.
+- Right-side detail stack now carries item details, optional AI review, collapsed Debug information, and quick local actions.
+- Compact execution module shows selected count, rename/quarantine/skip/warning pills, execution summary, explicit confirmation, and recent run result.
 - Cleaner icon-based UI using a minimal vendored Tabler Icons regular outline subset. No CDN, no external icon dependency, and secondary actions use compact accessible icon buttons.
 - Reproducible icon registry and sprite generation with `tools/build_icon_sprite.py --check`.
 - Two-pane review workbench: compact table on the left, full detail/debug panel on the right.
@@ -89,9 +103,13 @@ This machine may have more than one Python installation. Use the project venv co
 
 ## Local daily workflow
 
-The v0.7.4 local daily workflow is the same workflow described above: choose a folder, choose Rule Preview or AI Smart Preview, generate one validated preview, review/edit final names, execute selected items, then inspect reports or rollback from History.
+The v0.8.0 local daily workflow is the same workflow described above: choose a folder, choose Rule Preview or AI Smart Preview, generate one validated preview, review/edit final names, execute selected items, then inspect reports or rollback from History.
 
-The v0.7.4 UI polish is local-only: Tabler outline icons, toast/status feedback, compact table rows, and the two-pane detail panel do not change execution rules or LLM safety. The backend remains authoritative for validation, selection, `plan_hash`, execution, and rollback.
+The v0.8.0 workbench simplification is local-only: the sidebar shell, hidden advanced diagnostics shortcut, compact safety help, progressive disclosure, toast/status feedback, compact table rows, and the detail stack do not change execution rules or LLM safety. The backend remains authoritative for validation, selection, `plan_hash`, execution, and rollback.
+
+Debug mode is where technical details live: full Scan/Plan IDs, full `plan_hash`, Trace, raw sanitized LLM test results, diagnostics JSON, API capability flags, runtime/database status, and internal item/run IDs. Simple mode keeps those details out of the main workflow.
+
+Recommended desktop window size is 1440 x 900 or larger. The desktop wrapper opens at 1440 x 900 and enforces a 1280 x 760 minimum. Browser mode is optimized for desktop width; below the minimum, the page scrolls instead of crushing table columns.
 
 UI labels keep the important safety words visible: 阻止 means the item cannot execute, 警告 means review before execution, and 需复核 means the user should confirm the result before selecting it.
 
@@ -106,9 +124,9 @@ Packaging checks, when a build exists:
 .\scripts\smoke_packaged.ps1 .\dist\AVcleaner
 .\scripts\smoke_packaged.ps1 .\dist\AVcleaner -RunTempExecution
 .\packaging\create_release_zip.ps1 -SmokeTested
-.\scripts\check_artifact.ps1 .\release\AVcleaner-v0.7.4-portable-win-x64.zip
-.\scripts\smoke_release_zip.ps1 .\release\AVcleaner-v0.7.4-portable-win-x64.zip
-Get-FileHash .\release\AVcleaner-v0.7.4-portable-win-x64.zip -Algorithm SHA256
+.\scripts\check_artifact.ps1 .\release\AVcleaner-v0.8.0-portable-win-x64.zip
+.\scripts\smoke_release_zip.ps1 .\release\AVcleaner-v0.8.0-portable-win-x64.zip
+Get-FileHash .\release\AVcleaner-v0.8.0-portable-win-x64.zip -Algorithm SHA256
 ```
 
 ## API Flow

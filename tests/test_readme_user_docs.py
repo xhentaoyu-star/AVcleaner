@@ -6,14 +6,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_readme_mentions_v070_workflow_and_safety_boundaries() -> None:
+def test_readme_mentions_v076_workflow_and_safety_boundaries() -> None:
     text = (ROOT / "README.md").read_text(encoding="utf-8")
 
-    assert "Current version: `0.7.4`" in text
+    assert "Current version: `0.8.0`" in text
     assert "Tabler Icons" in text
     assert "Two-pane review workbench" in text
     assert "Settings subnav" in text
     assert "Local daily workflow" in text
+    assert "hidden advanced diagnostics shortcut" in text
+    assert "progressive disclosure" in text
     assert "隔离不是永久删除" in text
     assert "阻止" in text
     assert "警告" in text
@@ -27,12 +29,13 @@ def test_readme_mentions_v070_workflow_and_safety_boundaries() -> None:
     assert "recent folders" in text.lower()
 
 
-def test_quickstart_exists_for_nontechnical_beta_flow() -> None:
+def test_quickstart_exists_for_nontechnical_v076_flow() -> None:
     text = (ROOT / "QUICKSTART.md").read_text(encoding="utf-8")
 
-    for phrase in ["选择文件夹", "扫描", "生成预览", "复核", "执行选中", "回滚"]:
+    for phrase in ["选择文件夹", "扫描", "生成预览", "执行选中", "回滚", "高级诊断"]:
         assert phrase in text
 
     assert "隔离不是永久删除" in text
     assert "Strict OpenAI JSON Schema" in text
     assert "portable.flag" in text
+    assert "AVcleaner-v0.8.0-portable-win-x64.zip" in text

@@ -20,8 +20,8 @@ def test_llm_test_success(monkeypatch: pytest.MonkeyPatch) -> None:
             suggestions=[
                 LLMSuggestion(
                     item_id="test-item",
-                    suggested_name="FC2PPV-1234567-1.mp4",
-                    media_code="FC2PPV-1234567",
+                    suggested_name="FC2-PPV-1234567-1.mp4",
+                    media_code="FC2-PPV-1234567",
                     confidence=0.99,
                 )
             ]

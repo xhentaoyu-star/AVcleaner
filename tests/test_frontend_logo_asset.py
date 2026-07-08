@@ -17,9 +17,10 @@ def test_local_logo_icon_is_used_in_header_and_favicon() -> None:
     assert '<img src="/static/logo-icon.png" alt="" />' in html
 
 
-def test_workspace_has_safety_banner_matching_reference_hierarchy() -> None:
+def test_workspace_has_compact_safety_banner() -> None:
     html = INDEX_HTML.read_text(encoding="utf-8")
 
     assert 'class="safety-banner"' in html
-    assert "安全预览模式" in html
-    assert "数据只在本机保存" in html
+    assert "安全预览" in html
+    assert "扫描和预览不会修改文件" in html
+    assert 'data-debug-only data-debug-field="legacy-endpoint-status"' in html

@@ -6,7 +6,7 @@ def test_capabilities_exposes_v070_local_workflow_flags(client) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["version"] == "0.7.4"
+    assert body["version"] == "0.8.0"
     assert body["capabilities"]["beta_ux_polish"] is True
     assert body["capabilities"]["diagnostics_panel"] is True
     assert body["capabilities"]["first_run_helper"] is True
@@ -34,3 +34,13 @@ def test_capabilities_exposes_v070_local_workflow_flags(client) -> None:
     assert body["capabilities"]["toast_feedback"] is True
     assert body["capabilities"]["detail_drawer"] is True
     assert body["capabilities"]["responsive_table"] is True
+    assert body["capabilities"]["fixed_workbench_layout"] is True
+    assert body["capabilities"]["desktop_window_baseline"] is True
+    assert body["capabilities"]["right_detail_stack"] is True
+    assert body["capabilities"]["compact_execution_module"] is True
+    assert body["capabilities"]["workbench_visual_redesign"] is True
+    assert body["capabilities"]["simple_ui_mode"] is True
+    assert body["capabilities"]["debug_ui_mode"] is True
+    assert body["capabilities"]["progressive_disclosure"] is True
+    assert body["capabilities"]["compact_execution_section"] is True
+    assert body["capabilities"]["user_focused_workbench"] is True

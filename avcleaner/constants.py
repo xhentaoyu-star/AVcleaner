@@ -4,6 +4,8 @@ VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".wmv", ".m4v", ".ts"}
 SIDECAR_EXTENSIONS = {".srt", ".ass", ".ssa", ".vtt", ".nfo", ".jpg", ".jpeg", ".png", ".webp"}
 JUNK_EXTENSIONS = {".url", ".torrent", ".parts", ".qkdownloading", ".xltd", ".aria2"}
 TEXT_JUNK_EXTENSIONS = {".txt", ".html", ".htm", ".mht"}
+LARGE_TEMP_JUNK_EXTENSIONS = {".parts", ".qkdownloading", ".xltd", ".aria2"}
+LARGE_TEMP_JUNK_REVIEW_BYTES = 1024 * 1024 * 1024
 
 RULE_TRACE_IDS = {
     "unicode_normalize",

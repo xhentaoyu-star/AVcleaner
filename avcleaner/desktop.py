@@ -43,7 +43,7 @@ def _write_startup_log(message: str) -> None:
         pass
 
 
-def _wait_for_server(host: str, port: int, *, timeout_seconds: float = 10.0) -> bool:
+def _wait_for_server(host: str, port: int, *, timeout_seconds: float = 30.0) -> bool:
     deadline = time.monotonic() + timeout_seconds
     url = f"http://{host}:{port}/api/capabilities"
     while time.monotonic() < deadline:
@@ -107,16 +107,27 @@ def main() -> None:
         server.run()
         return
 
-    server_process = subprocess.Popen(
-        _server_command(args.host, port, portable=args.portable, dev_allow_lan=args.dev_allow_lan),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        close_fds=True,
-    )
+    log_dir = runtime_logs_dir()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    server_log = (log_dir / "desktop-server.log").open("a", encoding="utf-8")
+    try:
+        server_log.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} server_process_launch\n")
+        server_log.flush()
+        server_process = subprocess.Popen(
+            _server_command(args.host, port, portable=args.portable, dev_allow_lan=args.dev_allow_lan),
+            stdout=server_log,
+            stderr=server_log,
+            close_fds=True,
+        )
+    finally:
+        server_log.close()
     _write_startup_log(f"server_process_started:{server_process.pid}")
     if not _wait_for_server(args.host, port):
+        exit_code = server_process.poll()
+        if exit_code is not None:
+            _write_startup_log(f"server_process_exited:{exit_code}")
         _stop_server_process(server_process)
-        _write_startup_log("server_start_timeout")
+        _write_startup_log("server_start_timeout:30")
         raise SystemExit("server_start_timeout")
     _write_startup_log("server_ready")
 
@@ -124,7 +135,7 @@ def main() -> None:
     _write_startup_log("webview_imported")
 
     bridge = DesktopBridge()
-    window = webview.create_window("AVcleaner", f"http://{args.host}:{port}", width=1280, height=820)
+    window = webview.create_window("AVcleaner", f"http://{args.host}:{port}", width=1440, height=900, min_size=(1280, 760))
     bridge.window = window
     _write_startup_log("window_created")
 

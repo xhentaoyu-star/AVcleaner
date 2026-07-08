@@ -69,6 +69,26 @@ def test_execute_rejects_frontend_settings_override(tmp_path: Path, client, auth
     assert response.json()["error_code"] == "request_extra_fields"
 
 
+def test_execute_rejects_frontend_supplied_paths(tmp_path: Path, client, auth_headers: dict[str, str]) -> None:
+    make_file(tmp_path, "hhd800.com@ABP-123.mp4")
+    plan = create_plan(client, auth_headers, tmp_path)
+
+    response = client.post(
+        f"/api/plans/{plan['plan_id']}/execute",
+        headers=auth_headers,
+        json={
+            "selected_item_ids": [plan["items"][0]["id"]],
+            "confirm": True,
+            "plan_hash": plan["plan_hash"],
+            "source_path": str(tmp_path / "evil-source.mp4"),
+            "target_path": str(tmp_path / "evil-target.mp4"),
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "request_extra_fields"
+
+
 def test_legacy_execute_remains_disabled_after_review_workflow(client, auth_headers: dict[str, str]) -> None:
     response = client.post("/api/execute", headers=auth_headers, json={"confirm": True, "items": []})
 
