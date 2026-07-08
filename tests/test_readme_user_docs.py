@@ -29,6 +29,20 @@ def test_readme_explains_public_user_purpose_in_chinese() -> None:
     assert "## 它不做什么" in text
 
 
+def test_readme_is_bilingual_with_chinese_first() -> None:
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "AVcleaner 是一个面向 Windows 的本地文件清理工具" in text
+    assert "AVcleaner is a local Windows file-cleaning tool" in text
+    assert text.index("AVcleaner 是一个面向 Windows") < text.index(
+        "AVcleaner is a local Windows"
+    )
+    assert "Common problems in BT download folders" in text
+    assert "Main features:" in text
+    assert "Safety boundaries:" in text
+    assert "Quick start:" in text
+
+
 def test_readme_is_not_a_version_changelog_or_local_machine_runbook() -> None:
     text = (ROOT / "README.md").read_text(encoding="utf-8")
 
@@ -61,3 +75,16 @@ def test_quickstart_is_for_public_users_not_this_machine() -> None:
     assert ".venv" not in text
     assert "scripts\\check.ps1" not in text
     assert "AVcleaner-v0.8.0-portable-win-x64.zip" in text
+
+
+def test_quickstart_is_bilingual_with_chinese_first() -> None:
+    text = (ROOT / "QUICKSTART.md").read_text(encoding="utf-8")
+
+    assert "这份文档是给普通使用者看的" in text
+    assert "This guide is for regular users" in text
+    assert text.index("这份文档是给普通使用者看的") < text.index(
+        "This guide is for regular users"
+    )
+    assert "Download And Install" in text
+    assert "First Use" in text
+    assert "What AVcleaner Does Not Do" in text
