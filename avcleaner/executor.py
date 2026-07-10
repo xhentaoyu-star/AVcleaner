@@ -11,7 +11,7 @@ from .execution_progress import complete_item, finish_progress, start_item, star
 from .models import ExecuteRequest, ExecuteResponse, ExecutionItem, ExecutionRun, OperationRecord, PlanExecuteRequest
 from .planner import validate_stored_plan
 from .quarantine import quarantine_item
-from .recovery import ROLLBACK_TARGET_EXISTS, build_rollback_preview
+from .recovery import ROLLBACK_TARGET_EXISTS, build_rollback_preview, is_rollbackable_item
 from .repository import (
     create_run,
     get_plan,
@@ -148,7 +148,32 @@ def _execute_rename_item(run_item: ExecutionItem, item) -> ExecutionItem:
             return upsert_run_item(run_item.model_copy(update={"state": RunItemState.FAILED, "message": "temp_target_exists"}))
         run_item = upsert_run_item(run_item.model_copy(update={"temp_path": str(temp)}))
         source.rename(temp)
-        temp.rename(target)
+        try:
+            temp.rename(target)
+        except Exception:
+            try:
+                temp.rename(source)
+            except Exception:
+                return upsert_run_item(
+                    run_item.model_copy(
+                        update={
+                            "state": RunItemState.FAILED,
+                            "message": "rename_recovery_required",
+                            "issue_code": "rename_recovery_required",
+                            "temp_path": str(temp),
+                        }
+                    )
+                )
+            return upsert_run_item(
+                run_item.model_copy(
+                    update={
+                        "state": RunItemState.FAILED,
+                        "message": "rename_failed_source_restored",
+                        "issue_code": "rename_failed_source_restored",
+                        "temp_path": "",
+                    }
+                )
+            )
     else:
         source.rename(target)
     return upsert_run_item(run_item.model_copy(update={"state": RunItemState.RENAMED, "message": "renamed", "target_path": str(target)}))
@@ -193,13 +218,14 @@ def rollback_run(run_id: str, item_ids: list[str] | None = None) -> ExecuteRespo
     completed: list[ExecutionItem] = []
     for source_item in source_items:
         preview_item = preview_by_id[source_item.id]
+        rollback_source_path = source_item.temp_path if preview_item["rollback_action"] == "restore_temp_rename" else source_item.target_path
         rollback_item = ExecutionItem(
             id=new_id("runitem"),
             run_id=rollback_id,
             plan_item_id=source_item.plan_item_id,
             operation=source_item.operation,
             state=RunItemState.PENDING,
-            source_path=source_item.target_path,
+            source_path=rollback_source_path,
             target_path=source_item.source_path,
             snapshot=source_item.snapshot,
         )
@@ -218,7 +244,7 @@ def rollback_run(run_id: str, item_ids: list[str] | None = None) -> ExecuteRespo
             )
             update_run_item_rollback_status(source_item.id, str(RunItemState.ROLLBACK_FAILED), error_code)
         else:
-            source = Path(source_item.target_path).resolve(strict=False)
+            source = Path(rollback_item.source_path).resolve(strict=False)
             target = Path(source_item.source_path).resolve(strict=False)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(source), str(target))
@@ -238,7 +264,7 @@ def rollback_run(run_id: str, item_ids: list[str] | None = None) -> ExecuteRespo
     update_run_state(rollback_id, final_state, summary)
     remaining = get_run_items(run_id)
     if remaining and all(
-        item.state not in {RunItemState.RENAMED, RunItemState.QUARANTINED} or item.rollback_status == str(RunItemState.ROLLED_BACK)
+        not is_rollbackable_item(item) or item.rollback_status == str(RunItemState.ROLLED_BACK)
         for item in remaining
     ):
         update_run_state(run_id, RunState.ROLLED_BACK)

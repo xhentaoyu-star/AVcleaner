@@ -7,6 +7,7 @@ from typing import Iterable
 
 from .enums import Operation, RunItemState, RunState
 from .errors import AppError
+from .fingerprint import snapshot_for_path
 from .models import ExecutionItem, ExecutionRun, FileSnapshot, PlanItem, PlanRecord
 from .repository import get_plan, get_run, get_run_items
 
@@ -21,6 +22,16 @@ ROLLBACK_NOT_AVAILABLE = "rollback_not_available"
 ROLLBACKABLE_STATES = {RunItemState.RENAMED, RunItemState.QUARANTINED}
 SUCCESS_STATES = {RunItemState.RENAMED, RunItemState.QUARANTINED, RunItemState.SKIPPED, RunItemState.ROLLED_BACK}
 FAILED_STATES = {RunItemState.FAILED, RunItemState.ROLLBACK_FAILED}
+
+
+def is_rollbackable_item(item: ExecutionItem) -> bool:
+    return item.state in ROLLBACKABLE_STATES or (item.state == RunItemState.FAILED and bool(item.temp_path))
+
+
+def _rollback_current_path(item: ExecutionItem) -> Path:
+    if item.state == RunItemState.FAILED and item.temp_path:
+        return Path(item.temp_path).resolve(strict=False)
+    return Path(item.target_path).resolve(strict=False)
 
 
 def _display_safe_root(root_path: str) -> dict:
@@ -127,7 +138,7 @@ def _rollback_state(items: Iterable[ExecutionItem]) -> str:
         return "rolled_back"
     if any(status == str(RunItemState.ROLLBACK_FAILED) for status in rollback_statuses):
         return "rollback_partial"
-    if any(item.state in ROLLBACKABLE_STATES and item.rollback_status != str(RunItemState.ROLLED_BACK) for item in item_list):
+    if any(is_rollbackable_item(item) and item.rollback_status != str(RunItemState.ROLLED_BACK) for item in item_list):
         return "available"
     return "unavailable"
 
@@ -135,7 +146,7 @@ def _rollback_state(items: Iterable[ExecutionItem]) -> str:
 def _rollback_available(run: ExecutionRun, items: Iterable[ExecutionItem]) -> bool:
     if run.state in {RunState.ROLLED_BACK, RunState.ROLLBACK_RUNNING}:
         return False
-    return any(item.state in ROLLBACKABLE_STATES and item.rollback_status != str(RunItemState.ROLLED_BACK) for item in items)
+    return any(is_rollbackable_item(item) and item.rollback_status != str(RunItemState.ROLLED_BACK) for item in items)
 
 
 def build_run_detail(run_id: str) -> dict:
@@ -165,8 +176,12 @@ def build_run_detail(run_id: str) -> dict:
 def _matches_snapshot(path: Path, snapshot: FileSnapshot | None) -> bool:
     if not snapshot:
         return True
-    stat = path.stat()
-    return stat.st_size == snapshot.size and int(stat.st_mtime_ns) == int(snapshot.modified_ns)
+    current = snapshot_for_path(path)
+    return (
+        current.size == snapshot.size
+        and int(current.modified_ns) == int(snapshot.modified_ns)
+        and current.fingerprint == snapshot.fingerprint
+    )
 
 
 def _selected_rollback_items(run_items: list[ExecutionItem], item_ids: list[str] | None) -> list[ExecutionItem]:
@@ -179,7 +194,7 @@ def _selected_rollback_items(run_items: list[ExecutionItem], item_ids: list[str]
     return [
         item
         for item in run_items
-        if item.state in ROLLBACKABLE_STATES and item.rollback_status != str(RunItemState.ROLLED_BACK)
+        if is_rollbackable_item(item) and item.rollback_status != str(RunItemState.ROLLED_BACK)
     ]
 
 
@@ -189,7 +204,7 @@ def _preview_item(item: ExecutionItem) -> dict:
     operation = str(item.operation)
     rollback_action = "skip"
     missing_code = ROLLBACK_SOURCE_MISSING
-    current_path = Path(item.target_path).resolve(strict=False)
+    current_path = _rollback_current_path(item)
     restore_target = Path(item.source_path).resolve(strict=False)
 
     if item.rollback_status == str(RunItemState.ROLLED_BACK):
@@ -199,6 +214,8 @@ def _preview_item(item: ExecutionItem) -> dict:
     elif item.state == RunItemState.QUARANTINED:
         rollback_action = "restore_from_quarantine"
         missing_code = QUARANTINE_FILE_MISSING
+    elif item.state == RunItemState.FAILED and item.temp_path:
+        rollback_action = "restore_temp_rename"
     else:
         issue_codes.append(ROLLBACK_NOT_AVAILABLE)
 
