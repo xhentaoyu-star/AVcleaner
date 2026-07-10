@@ -30,7 +30,7 @@ def test_detail_drawer_contains_full_debug_context() -> None:
         "function openDetailDrawer",
         "function closeDetailDrawer",
         "function renderDetailDrawer",
-        "未选择项目",
+        "选择左侧文件查看详情",
         "emptyStateNode",
         "item_id",
         "source_rel_path",

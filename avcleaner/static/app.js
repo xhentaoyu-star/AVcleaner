@@ -1665,65 +1665,6 @@ function closeDetailDrawer() {
   }
 }
 
-function renderLegacyDetailDrawer() {
-  const panel = $("#detailDrawerPanel");
-  const body = $("#detailDrawerBody");
-  if (!panel || !body) return;
-  const item = (state.plan?.items || []).find((candidate) => candidate.id === state.detailItemId);
-  body.innerHTML = "";
-  if (!item) {
-    setText("#detailDrawerTitle", "选择左侧文件查看详细信息");
-    body.append(emptyStateNode("未选择项目", "选择左侧文件查看详细信息。表格只放短摘要，完整路径、AI 审核、Trace 和 Debug 信息都在这里。", "details"));
-    return;
-  }
-  setText("#detailDrawerTitle", item.original_name || item.id);
-
-  const itemDetails = document.createElement("div");
-  itemDetails.className = "detail-list";
-  itemDetails.append(
-    detailLine("状态", [friendlyAction(item.action || item.operation), hasBlocking(item) ? "阻止" : hasWarningOnly(item) ? "警告" : "可处理"].join(" / ")),
-    detailLine("原文件名", item.original_name || "-"),
-    detailNameEditor(item),
-    detailLine("操作", friendlyAction(item.action || item.operation)),
-    detailLine("来源", SOURCE_LABELS[previewSource(item)] || friendlySource(item.source || item.suggestion_source) || "-"),
-    detailLine("处理摘要", processSummaryText(item), item.reason || ""),
-    detailLine("问题代码", issueCodes(item).join("；") || "-", "issue_codes"),
-    detailLine("Trace 摘要", traceSummary(item)),
-    detailLine("相对路径", item.relative_path || item.source_rel_path || item.original_name || "-"),
-    detailLine("完整路径", item.source_path || "-"),
-    detailLine("大小", formatSize(item.size)),
-    detailLine("修改时间", formatTimeSeconds(item.mtime)),
-    detailLine("识别番号", item.media_code || item.associated_media_code || "-"),
-    detailLine("置信度", Number(item.confidence || 0).toFixed(2))
-  );
-
-  const reviewDetails = document.createElement("div");
-  reviewDetails.className = "detail-list";
-  reviewDetails.append(renderIssueList(item));
-  const suggestion = explanationFor(item.reason || issueCodes(item)[0]);
-  reviewDetails.append(detailLine("建议动作", suggestion?.suggested_action || "-", item.reason || issueCodes(item)[0] || ""));
-
-  const llmDetails = document.createElement("div");
-  llmDetails.className = "detail-list";
-  llmDetails.append(
-    detailLine("AI 置信度", item.llm_confidence === null || item.llm_confidence === undefined ? "-" : `${Math.round(Number(item.llm_confidence) * 100)}%`),
-    detailLine("安全校验", item.llm_validation_codes?.length || item.llm_error_code ? "未通过或需复核" : shouldShowAiReview(item) ? "通过" : "-"),
-    detailLine("AI 状态", LLM_STATE_LABELS[item.llm_state] || item.llm_state || "-"),
-    detailLine("AI 建议", item.llm_suggested_name || "-"),
-    detailLine("理由", item.llm_reason || "-"),
-    detailLine("警告/错误", [...new Set([...(item.llm_warnings || []), item.llm_error_code].filter(Boolean))].join("；") || "-"),
-    detailLine("回退状态", item.llm_state && ["invalid", "schema_error", "safety_error", "provider_error"].includes(item.llm_state) ? "已回退到规则预览" : "-"),
-    detailLine("AI 稳定码", [...new Set([...(item.llm_validation_codes || []), item.llm_error_code].filter(Boolean))].join("；") || "-")
-  );
-
-  body.append(detailSection("项目详情", itemDetails));
-  body.append(detailSection("复核信息", reviewDetails));
-  if (shouldShowAiReview(item)) body.append(detailSection("AI 审核", llmDetails));
-  if (item.sidecar_type) body.append(detailSection("关联文件", renderSidecarDetails(item)));
-  body.append(detailSection("Debug 信息", debugDetailsNode(item)));
-  body.append(detailSection("快捷操作", detailActionsNode(item)));
-}
-
 function renderDetailDrawer() {
   const panel = $("#detailDrawerPanel");
   const body = $("#detailDrawerBody");

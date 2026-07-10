@@ -16,7 +16,7 @@ def test_empty_state_helper_is_used_for_table_and_detail_panel() -> None:
     assert "未分析" in text
     assert "未生成预览" in text
     assert "没有符合当前筛选的项目" in text
-    assert "未选择项目" in text
+    assert "选择左侧文件查看详情" in text
 
 
 def test_empty_state_has_icon_and_compact_style() -> None:
