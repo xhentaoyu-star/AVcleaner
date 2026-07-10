@@ -22,5 +22,6 @@ def test_detail_panel_has_empty_state_without_hiding_panel() -> None:
     render_detail = text[text.index("function renderDetailDrawer") : text.index("async function saveManualEdit")]
 
     assert "panel.hidden = !item" not in render_detail
-    assert "未选择项目" in render_detail
-    assert 'emptyStateNode("未选择项目"' in render_detail
+    assert 'panel.classList.toggle("is-empty", !item)' in render_detail
+    assert "选择左侧文件查看详情" in render_detail
+    assert 'emptyStateNode("选择左侧文件查看详情"' in render_detail

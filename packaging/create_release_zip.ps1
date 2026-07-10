@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "0.7.5",
+  [string]$Version = "",
   [string]$DistPath = "",
   [string]$ReleaseDir = "",
   [switch]$Build,
@@ -26,6 +26,16 @@ if (-not (Test-Path -LiteralPath $DistPath)) {
 $DistItem = Get-Item -LiteralPath $DistPath
 if (-not $DistItem.PSIsContainer) {
   Write-Error "DistPath must be a portable directory, not a file: $DistPath"
+}
+
+if (-not (Test-Path -LiteralPath $Python)) {
+  Write-Error "Project venv Python not found: $Python"
+}
+$CapabilitiesVersion = (& $Python -c "from avcleaner import __version__; print(__version__)").Trim()
+if (-not $Version) {
+  $Version = $CapabilitiesVersion
+} elseif ($Version -ne $CapabilitiesVersion) {
+  Write-Error "Release version $Version does not match application version $CapabilitiesVersion."
 }
 
 $ZipName = "AVcleaner-v$Version-portable-win-x64.zip"
@@ -119,7 +129,6 @@ $GitStatus = Get-ReleaseGitStatus $Root
 $GitDirty = -not [string]::IsNullOrWhiteSpace($GitStatus)
 $PythonVersion = if (Test-Path -LiteralPath $Python) { Invoke-OptionalCommand { & $Python --version } } else { "" }
 $PyInstallerVersion = if (Test-Path -LiteralPath $Python) { Invoke-OptionalCommand { & $Python -m PyInstaller --version } } else { "" }
-$CapabilitiesVersion = if (Test-Path -LiteralPath $Python) { Invoke-OptionalCommand { & $Python -c "from avcleaner import __version__; print(__version__)" } } else { $Version }
 $BuildTimeUtc = [DateTime]::UtcNow.ToString("o")
 $IncludedTopLevelFiles = @(Get-ChildItem -LiteralPath $PackageDir -Force | Sort-Object Name | ForEach-Object { $_.Name })
 

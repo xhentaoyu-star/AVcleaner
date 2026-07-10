@@ -11,6 +11,7 @@ $AppJs = Join-Path $Root "avcleaner\static\app.js"
 if (-not (Test-Path $Python)) {
   Write-Error "Project venv Python not found: .venv\Scripts\python.exe"
 }
+$ExpectedVersion = (& $Python -c "from avcleaner import __version__; print(__version__)").Trim()
 
 Push-Location $Root
 try {
@@ -33,9 +34,9 @@ try {
     if (Test-Path $Artifact) {
       & (Join-Path $Root "scripts\check_artifact.ps1") $Artifact
       if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      & (Join-Path $Root "scripts\smoke_packaged.ps1") $Artifact
+      & (Join-Path $Root "scripts\smoke_packaged.ps1") $Artifact -ExpectedVersion $ExpectedVersion
       if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      & (Join-Path $Root "scripts\smoke_packaged.ps1") $Artifact -RunTempExecution
+      & (Join-Path $Root "scripts\smoke_packaged.ps1") $Artifact -ExpectedVersion $ExpectedVersion -RunTempExecution
       if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     } else {
       Write-Output "Packaging checks skipped: dist\AVcleaner does not exist."

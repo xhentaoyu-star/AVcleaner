@@ -1,6 +1,6 @@
 # AVcleaner Packaging
 
-AVcleaner v0.7.5 uses a PyInstaller one-directory portable build first.
+AVcleaner v0.8.0 uses a PyInstaller one-directory portable build first.
 Installer packaging is intentionally not mandatory in this phase.
 
 Build from a prepared development environment:
@@ -49,8 +49,8 @@ Create the portable release zip, checksum, and manifest:
 
 ```powershell
 .\packaging\create_release_zip.ps1 -SmokeTested
-.\scripts\check_artifact.ps1 .\release\AVcleaner-v0.7.5-portable-win-x64.zip
-.\scripts\smoke_release_zip.ps1 .\release\AVcleaner-v0.7.5-portable-win-x64.zip
+.\scripts\check_artifact.ps1 .\release\AVcleaner-v0.8.0-portable-win-x64.zip
+.\scripts\smoke_release_zip.ps1 .\release\AVcleaner-v0.8.0-portable-win-x64.zip
 ```
 
 The package must not include `.venv`, tests, Git metadata, local SQLite user

@@ -1665,7 +1665,7 @@ function closeDetailDrawer() {
   }
 }
 
-function renderDetailDrawer() {
+function renderLegacyDetailDrawer() {
   const panel = $("#detailDrawerPanel");
   const body = $("#detailDrawerBody");
   if (!panel || !body) return;

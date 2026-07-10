@@ -25,9 +25,9 @@ def test_detail_panel_carries_full_context_not_table() -> None:
     text = APP_JS.read_text(encoding="utf-8")
     render_detail = text[text.index("function renderDetailDrawer") : text.index("async function saveManualEdit")]
 
-    for label in ["项目详情", "AI 审核", "Debug 信息", "快捷操作"]:
+    for label in ["文件", "最终文件名", "处理", "风险/提示", "AI 建议", "Debug 信息", "快捷操作"]:
         assert label in render_detail
     assert "完整路径" in render_detail
     assert "source_path" in text[text.index("function debugDetailsNode") : text.index("function groupLabel")]
     assert 'summary.textContent = "Debug 信息"' in text
-    assert "选择左侧文件查看详细信息" in render_detail
+    assert "选择左侧文件查看详情" in render_detail

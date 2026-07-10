@@ -24,6 +24,8 @@ def test_detail_drawer_shell_exists() -> None:
 def test_detail_drawer_contains_full_debug_context() -> None:
     text = APP_JS.read_text(encoding="utf-8")
 
+    assert text.count("function renderDetailDrawer()") == 1
+
     for marker in [
         "function openDetailDrawer",
         "function closeDetailDrawer",
