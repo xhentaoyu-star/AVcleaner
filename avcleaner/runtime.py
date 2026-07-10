@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import ipaddress
 import socket
 import sys
 from dataclasses import dataclass
@@ -91,6 +92,16 @@ def is_port_available(host: str, port: int) -> bool:
         except OSError:
             return False
     return True
+
+
+def is_loopback_host(host: str) -> bool:
+    normalized = host.strip().lower()
+    if normalized == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
 
 
 def choose_available_port(host: str, preferred_port: int, *, attempts: int = 20) -> int:

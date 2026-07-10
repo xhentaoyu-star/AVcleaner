@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .constants import DEFAULT_EXCLUDE_DIRS
 from .database import load_setting, save_setting
+from .errors import AppError
 from .models import AppSettings, SettingsImportResponse
 from .secrets import SecretStore, get_secret_store
 
@@ -16,18 +17,19 @@ def default_settings() -> AppSettings:
 
 def _migrate_api_key(settings: AppSettings, store: SecretStore) -> AppSettings:
     api_key = settings.llm.api_key
-    if not api_key or settings.llm.provider == "disabled":
+    if not api_key:
         return settings
-    provider = settings.llm.provider
-    try:
-        store.set_api_key(provider, api_key)
-        if store.get_api_key(provider) == api_key:
-            cleaned = settings.model_copy(update={"llm": settings.llm.model_copy(update={"api_key": ""})})
-            save_setting(SETTINGS_KEY, cleaned.model_dump(mode="json"), cleaned.schema_version)
-            return cleaned
-    except Exception:
-        return settings
-    return settings
+    cleaned = settings.model_copy(update={"llm": settings.llm.model_copy(update={"api_key": ""})})
+    if settings.llm.provider != "disabled":
+        try:
+            store.set_api_key(settings.llm.provider, api_key)
+            store.get_api_key(settings.llm.provider)
+        except Exception:
+            pass
+    # Legacy plaintext is always scrubbed, even if the OS secret backend is
+    # unavailable. Losing an old credential is safer than continuing to expose it.
+    save_setting(SETTINGS_KEY, cleaned.model_dump(mode="json"), cleaned.schema_version)
+    return cleaned
 
 
 def get_settings(store: SecretStore | None = None) -> AppSettings:
@@ -41,14 +43,14 @@ def get_settings(store: SecretStore | None = None) -> AppSettings:
 def put_settings(settings: AppSettings, store: SecretStore | None = None) -> AppSettings:
     secret_store = store or get_secret_store()
     api_key = settings.llm.api_key
-    cleaned = settings
+    cleaned = settings.model_copy(update={"llm": settings.llm.model_copy(update={"api_key": ""})})
     if api_key and settings.llm.provider != "disabled":
         try:
             secret_store.set_api_key(settings.llm.provider, api_key)
-            if secret_store.get_api_key(settings.llm.provider) == api_key:
-                cleaned = settings.model_copy(update={"llm": settings.llm.model_copy(update={"api_key": ""})})
-        except Exception:
-            cleaned = settings
+            if secret_store.get_api_key(settings.llm.provider) != api_key:
+                raise RuntimeError("secret verification failed")
+        except Exception as exc:
+            raise AppError("secret_store_unavailable", 503) from exc
     save_setting(SETTINGS_KEY, cleaned.model_dump(mode="json"), cleaned.schema_version)
     return cleaned
 

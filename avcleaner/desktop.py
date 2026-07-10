@@ -11,7 +11,7 @@ from pathlib import Path
 
 import uvicorn
 
-from avcleaner.runtime import choose_available_port, runtime_logs_dir
+from avcleaner.runtime import choose_available_port, is_loopback_host, runtime_logs_dir
 
 
 class DesktopBridge:
@@ -87,11 +87,11 @@ def main() -> None:
     parser.add_argument("--portable", action="store_true")
     parser.add_argument("--strict-port", action="store_true")
     parser.add_argument("--no-window", action="store_true")
-    parser.add_argument("--dev-allow-lan", action="store_true")
+    parser.add_argument("--dev-allow-lan", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
-    if args.host in {"0.0.0.0", "::"} and not args.dev_allow_lan:
-        raise SystemExit("host_not_allowed: use --dev-allow-lan to bind outside 127.0.0.1")
+    if not is_loopback_host(args.host):
+        raise SystemExit("host_not_allowed: AVcleaner only binds to a loopback address")
     if args.portable:
         os.environ["AVCLEANER_PORTABLE"] = "1"
 

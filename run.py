@@ -5,7 +5,7 @@ import os
 
 import uvicorn
 
-from avcleaner.runtime import choose_available_port
+from avcleaner.runtime import choose_available_port, is_loopback_host
 
 
 def main() -> None:
@@ -15,11 +15,11 @@ def main() -> None:
     parser.add_argument("--reload", action="store_true")
     parser.add_argument("--portable", action="store_true")
     parser.add_argument("--strict-port", action="store_true")
-    parser.add_argument("--dev-allow-lan", action="store_true")
+    parser.add_argument("--dev-allow-lan", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
-    if args.host in {"0.0.0.0", "::"} and not args.dev_allow_lan:
-        parser.error("host_not_allowed: use --dev-allow-lan to bind outside 127.0.0.1")
+    if not is_loopback_host(args.host):
+        parser.error("host_not_allowed: AVcleaner only binds to a loopback address")
     if args.portable:
         os.environ["AVCLEANER_PORTABLE"] = "1"
 
