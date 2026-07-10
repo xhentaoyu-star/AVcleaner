@@ -176,3 +176,37 @@ def test_ai_preview_splits_bad_batch_and_keeps_successful_items(
     assert items_by_code["ABP-100"]["source"] == "llm"
     assert items_by_code["ABP-102"]["source"] == "rule"
     assert items_by_code["ABP-102"]["llm_error_code"] == "llm_multiple_json_objects"
+
+
+def test_ai_preview_does_not_retry_a_timed_out_batch(
+    tmp_path: Path,
+    client,
+    auth_headers: dict[str, str],
+    monkeypatch,
+) -> None:
+    for code in ["ABP-100", "ABP-101", "ABP-102", "ABP-103"]:
+        make_file(tmp_path, f"hhd800.com@{code}.mp4")
+    configure_llm(client, auth_headers)
+    settings = client.get("/api/settings", headers=auth_headers).json()
+    settings["llm"]["max_batch_size"] = 4
+    assert client.put("/api/settings", headers=auth_headers, json=settings).status_code == 200
+
+    batch_sizes: list[int] = []
+
+    async def fake_suggest(request, _settings):
+        batch_sizes.append(len(request.items))
+        raise TimeoutError("mock timeout")
+
+    monkeypatch.setattr("avcleaner.llm.suggest_with_llm", fake_suggest)
+
+    response = client.post(
+        "/api/analyze",
+        headers=auth_headers,
+        json={"root_path": str(tmp_path), "preview_mode": "ai"},
+    )
+
+    assert response.status_code == 200
+    plan = response.json()["plan"]
+    assert batch_sizes == [4]
+    assert plan["llm_invalid_count"] == 4
+    assert plan["llm_fallback_to_rule_count"] == 4

@@ -6,6 +6,7 @@ from threading import Lock
 from .database import utc_now_iso
 
 TERMINAL_PROGRESS_STATES = {"success", "partial_success", "failed", "interrupted", "cancelled", "abandoned"}
+MAX_PROGRESS_ENTRIES = 200
 
 
 @dataclass
@@ -39,6 +40,18 @@ _LOCK = Lock()
 _PROGRESS: dict[str, ExecutionProgress] = {}
 
 
+def _prune_terminal_progress_locked() -> None:
+    overflow = len(_PROGRESS) - MAX_PROGRESS_ENTRIES
+    if overflow <= 0:
+        return
+    terminal = sorted(
+        (progress for progress in _PROGRESS.values() if progress.state in TERMINAL_PROGRESS_STATES),
+        key=lambda progress: (progress.completed_at or progress.updated_at or progress.started_at, progress.run_id),
+    )
+    for progress in terminal[:overflow]:
+        _PROGRESS.pop(progress.run_id, None)
+
+
 def start_progress(run_id: str, plan_id: str, total_items: int = 0) -> dict:
     now = utc_now_iso()
     progress = ExecutionProgress(
@@ -50,6 +63,7 @@ def start_progress(run_id: str, plan_id: str, total_items: int = 0) -> dict:
     )
     with _LOCK:
         _PROGRESS[run_id] = progress
+        _prune_terminal_progress_locked()
         return progress.to_dict()
 
 
@@ -64,6 +78,7 @@ def update_progress(run_id: str, **changes) -> dict:
         if progress.state in TERMINAL_PROGRESS_STATES and not progress.completed_at:
             progress.completed_at = now
         _PROGRESS[run_id] = progress
+        _prune_terminal_progress_locked()
         return progress.to_dict()
 
 

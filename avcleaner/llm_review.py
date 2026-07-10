@@ -358,12 +358,6 @@ async def _generate_uncached_suggestions_for_chunk(
         error_code = str(IssueCode.LLM_TIMEOUT)
         if not allow_partial_failures:
             raise AppError(IssueCode.LLM_TIMEOUT, 504) from None
-        if len(chunk) > 1:
-            midpoint = max(1, len(chunk) // 2)
-            return [
-                *await _generate_uncached_suggestions_for_chunk(record, chunk[:midpoint], settings, allow_partial_failures=allow_partial_failures),
-                *await _generate_uncached_suggestions_for_chunk(record, chunk[midpoint:], settings, allow_partial_failures=allow_partial_failures),
-            ]
         return [
             create_llm_suggestion(_failed_record_from_error(record, item, settings, payload_hash, error_code))
             for item, _preview, _cache_key_value, payload_hash in chunk

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 
 from .constants import JUNK_EXTENSIONS, SIDECAR_EXTENSIONS, VIDEO_EXTENSIONS
@@ -42,26 +43,29 @@ def scan_files(request: ScanRequest) -> ScanResponse:
     files: list[ScanItem] = []
     skipped_dirs: list[str] = []
 
-    def is_under_skipped_dir(path: Path) -> bool:
-        for parent in path.parents:
-            if parent == root.parent:
-                break
-            if parent == root:
+    def walk_files(directory: Path):
+        try:
+            with os.scandir(directory) as iterator:
+                entries = sorted(iterator, key=lambda entry: entry.name.lower())
+        except OSError:
+            return
+        for entry in entries:
+            path = Path(entry.path)
+            try:
+                is_dir = entry.is_dir(follow_symlinks=False)
+            except OSError:
                 continue
-            parent_name = parent.name.lower()
-            if parent_name in exclude_dirs or (not request.include_hidden and parent.name.startswith(".")):
-                skipped_dirs.append(str(parent))
-                return True
-        return False
+            if is_dir:
+                if entry.name.lower() in exclude_dirs or (not request.include_hidden and entry.name.startswith(".")):
+                    skipped_dirs.append(str(path))
+                elif request.recursive:
+                    yield from walk_files(path)
+                continue
+            if entry.is_symlink() or (not request.include_hidden and entry.name.startswith(".")):
+                continue
+            yield path
 
-    iterator = root.rglob("*") if request.recursive else root.glob("*")
-    for path in sorted(iterator, key=lambda p: str(p).lower()):
-        if path.is_dir():
-            continue
-        if is_under_skipped_dir(path):
-            continue
-        if not request.include_hidden and path.name.startswith("."):
-            continue
+    for path in walk_files(root):
         ext = normalize_extension(path.suffix)
         if allowed_extensions is not None and ext not in allowed_extensions:
             continue
@@ -86,6 +90,7 @@ def scan_files(request: ScanRequest) -> ScanResponse:
             )
         )
 
+    files.sort(key=lambda item: item.path.lower())
     return ScanResponse(
         root_path=str(root),
         files=files,
