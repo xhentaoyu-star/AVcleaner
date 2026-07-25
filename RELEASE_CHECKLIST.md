@@ -11,15 +11,15 @@ Use this checklist before publishing a Windows build.
   `.\scripts\smoke_packaged.ps1 .\dist\AVcleaner -RunTempExecution`.
 - Create the release zip with `.\packaging\create_release_zip.ps1 -SmokeTested`.
 - Verify the zip with
-  `.\scripts\check_artifact.ps1 .\release\AVcleaner-v0.8.0-portable-win-x64.zip`.
+  `.\scripts\check_artifact.ps1 .\release\AVcleaner-v0.8.1-portable-win-x64.zip`.
 - Smoke-test the final zip directly with
-  `.\scripts\smoke_release_zip.ps1 .\release\AVcleaner-v0.8.0-portable-win-x64.zip`.
-- Verify `release\AVcleaner-v0.8.0-portable-win-x64.zip.sha256`.
+  `.\scripts\smoke_release_zip.ps1 .\release\AVcleaner-v0.8.1-portable-win-x64.zip`.
+- Verify `release\AVcleaner-v0.8.1-portable-win-x64.zip.sha256`.
 - Verify SHA256 with
-  `Get-FileHash .\release\AVcleaner-v0.8.0-portable-win-x64.zip -Algorithm SHA256`.
+  `Get-FileHash .\release\AVcleaner-v0.8.1-portable-win-x64.zip -Algorithm SHA256`.
 - Verify `release\artifact-manifest.json`.
 - Test on a clean Windows 10/11 x64 VM before public release.
-- v0.8.0 clean Windows manual checklist:
+- v0.8.1 clean Windows manual checklist:
   - Windows 10 x64 clean VM.
   - Windows 11 x64 clean VM.
   - Run portable package from Downloads.

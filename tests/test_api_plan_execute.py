@@ -32,6 +32,40 @@ def test_api_scan_plan_execute_and_runs(tmp_path: Path, client, auth_headers) ->
     assert runs.json()
 
 
+def test_execute_selected_allows_safe_item_when_another_preview_item_is_blocked(
+    tmp_path: Path, client, auth_headers
+) -> None:
+    make_file(tmp_path, "hhd800.com@ABP-999.mp4")
+    make_file(tmp_path, "a@ABP-123.mp4")
+    make_file(tmp_path, "b@ABP-123.mp4")
+
+    analyzed = client.post(
+        "/api/analyze",
+        json={"root_path": str(tmp_path), "recursive": True, "preview_mode": "rule"},
+        headers=auth_headers,
+    )
+    assert analyzed.status_code == 200
+    plan = analyzed.json()["plan"]
+    assert plan["state"] == "stale"
+
+    safe_item = next(item for item in plan["items"] if item["original_name"] == "hhd800.com@ABP-999.mp4")
+    assert safe_item["selected"] is True
+    assert safe_item["blocking"] is False
+
+    executed = client.post(
+        f"/api/plans/{plan['plan_id']}/execute",
+        json={
+            "selected_item_ids": [safe_item["id"]],
+            "confirm": True,
+            "plan_hash": plan["plan_hash"],
+        },
+        headers=auth_headers,
+    )
+
+    assert executed.status_code == 200
+    assert (tmp_path / "ABP-999.mp4").exists()
+
+
 def test_api_execute_start_exposes_progress_until_terminal(tmp_path: Path, client, auth_headers) -> None:
     make_file(tmp_path, "hhd800.com@ABP-124.mp4")
     _scan, plan = create_scan_and_plan(client, auth_headers, tmp_path)

@@ -13,7 +13,7 @@ def test_fixed_workbench_uses_desktop_baseline() -> None:
     css = CSS.read_text(encoding="utf-8")
     v075_css = css[css.index("/* v0.7.5 fixed desktop workbench */") :]
 
-    assert 'data-workbench-version="0.8.0"' in html
+    assert 'data-workbench-version="0.8.1"' in html
     assert "min-width: 1280px" in v075_css
     assert "1480px" in v075_css
     assert "overflow-x: auto" in v075_css
@@ -26,7 +26,7 @@ def test_capabilities_expose_workbench_redesign_flags(client) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["version"] == "0.8.0"
+    assert body["version"] == "0.8.1"
     assert body["desktop_window"] == {
         "default_width": 1440,
         "default_height": 900,

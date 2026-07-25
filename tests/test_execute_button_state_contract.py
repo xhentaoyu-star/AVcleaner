@@ -22,6 +22,16 @@ def test_execute_button_state_helper_covers_required_blockers() -> None:
         assert reason in text
 
 
+def test_stale_plan_does_not_block_unrelated_safe_selection() -> None:
+    text = APP_JS.read_text(encoding="utf-8")
+    helper_start = text.index("function getExecuteButtonState")
+    helper_body = text[helper_start : text.index("function operationStatus", helper_start)]
+
+    assert 'plan.state === "executed"' in helper_body
+    assert 'plan.state === "stale"' not in helper_body
+    assert "selected.some(hasBlocking)" in helper_body
+
+
 def test_execute_flow_shows_visible_summary_before_confirmation() -> None:
     text = APP_JS.read_text(encoding="utf-8")
     execute_start = text.index("async function executeSelected")

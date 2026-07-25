@@ -74,7 +74,7 @@ def test_quickstart_is_for_public_users_not_this_machine() -> None:
     assert "cd L:\\1\\AVcleaner" not in text
     assert ".venv" not in text
     assert "scripts\\check.ps1" not in text
-    assert "AVcleaner-v0.8.0-portable-win-x64.zip" in text
+    assert "AVcleaner-v0.8.1-portable-win-x64.zip" in text
 
 
 def test_quickstart_is_bilingual_with_chinese_first() -> None:

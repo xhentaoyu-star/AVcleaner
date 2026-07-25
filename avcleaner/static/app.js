@@ -1066,7 +1066,7 @@ function getExecuteButtonState(plan = state.plan) {
   if (!plan.plan_hash) {
     return { enabled: false, reason: "plan_hash_missing", selectedCount: 0 };
   }
-  if (plan.state === "stale" || plan.state === "executed") {
+  if (plan.state === "executed") {
     return { enabled: false, reason: "plan_not_validated", selectedCount: selectedExecutableItems(plan).length };
   }
   const selected = selectedExecutableItems(plan);

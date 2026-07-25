@@ -1947,7 +1947,7 @@ td {
   }
 }
 
-/* v0.8.0 OpenAver-style sidebar shell */
+/* v0.8.1 OpenAver-style sidebar shell */
 body {
   min-width: 1024px;
   overflow-x: auto;
@@ -2210,7 +2210,7 @@ body {
   }
 }
 
-/* v0.8.0 user-focused progressive disclosure */
+/* v0.8.1 user-focused progressive disclosure */
 body[data-ui-detail-mode="simple"] [data-debug-only],
 body[data-ui-detail-mode="debug"] [data-simple-only] {
   display: none !important;
