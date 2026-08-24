@@ -32,7 +32,7 @@ def test_preview_table_uses_stable_columns_and_internal_scroll() -> None:
     assert "table-layout: fixed" in css
     assert "overflow: auto" in css
     assert "text-overflow: ellipsis" in css
-    assert "grid-template-columns: minmax(760px, 1fr) 380px" in css
+    assert "grid-template-columns: minmax(760px, 1fr) 360px" in css
 
 
 def test_preview_rows_move_long_content_out_of_table_body() -> None:

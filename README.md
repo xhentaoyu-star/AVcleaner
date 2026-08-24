@@ -111,7 +111,7 @@ If your need is to clean a BT download folder before library import, AVcleaner f
 
 ## 快速开始
 
-1. 到 GitHub Releases 下载最新便携版 `AVcleaner-v0.8.2-portable-win-x64.zip`。
+1. 到 GitHub Releases 下载最新便携版 `AVcleaner-v0.8.4-portable-win-x64.zip`。
 2. 解压到你希望保存软件的位置，例如 `D:\Tools\AVcleaner`。
 3. 双击运行 `AVcleaner.exe`。
 4. 在工作台选择 BT 下载目录。
@@ -123,7 +123,7 @@ If your need is to clean a BT download folder before library import, AVcleaner f
 
 Quick start:
 
-1. Download the latest portable build from GitHub Releases: `AVcleaner-v0.8.2-portable-win-x64.zip`.
+1. Download the latest portable build from GitHub Releases: `AVcleaner-v0.8.4-portable-win-x64.zip`.
 2. Extract it to a stable folder, for example `D:\Tools\AVcleaner`.
 3. Run `AVcleaner.exe`.
 4. Choose a BT download folder in the workbench.
@@ -269,7 +269,7 @@ Checks including packaging:
 - 主要形态：本地桌面工具 / 本地 Web UI。
 - 前端：Jinja2 模板、静态 CSS、静态 `app.js`。
 - 后端：FastAPI。
-- 当前版本：`0.8.2`。
+- 当前版本：`0.8.4`。
 
 Current status:
 
@@ -277,4 +277,4 @@ Current status:
 - Form: Local desktop tool / local Web UI.
 - Frontend: Jinja2 templates, static CSS, static `app.js`.
 - Backend: FastAPI.
-- Version: `0.8.2`.
+- Version: `0.8.4`.

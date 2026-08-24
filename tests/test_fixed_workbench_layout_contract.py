@@ -8,17 +8,18 @@ HTML = ROOT / "avcleaner" / "templates" / "index.html"
 CSS = ROOT / "avcleaner" / "static" / "styles.css"
 
 
-def test_fixed_workbench_uses_desktop_baseline() -> None:
+def test_workbench_uses_responsive_v084_baseline() -> None:
     html = HTML.read_text(encoding="utf-8")
     css = CSS.read_text(encoding="utf-8")
-    v075_css = css[css.index("/* v0.7.5 fixed desktop workbench */") :]
+    v084_css = css[css.index("/* V0.8.4 product workspace shell */") :]
 
-    assert 'data-workbench-version="0.8.2"' in html
-    assert "min-width: 1280px" in v075_css
-    assert "1480px" in v075_css
-    assert "overflow-x: auto" in v075_css
-    assert "grid-template-columns: minmax(760px, 1fr) 380px" in v075_css
-    assert "calc(100vh - 470px)" in v075_css
+    assert 'data-workbench-version="0.8.4"' in html
+    assert "--content-max: 1660px" in css
+    assert "min-width: 1280px" not in v084_css
+    assert "@media (max-width: 1180px)" in v084_css
+    assert "@media (max-width: 820px)" in v084_css
+    assert "@media (max-width: 560px)" in v084_css
+    assert "@media (prefers-reduced-motion: reduce)" in v084_css
 
 
 def test_capabilities_expose_workbench_redesign_flags(client) -> None:
@@ -26,15 +27,15 @@ def test_capabilities_expose_workbench_redesign_flags(client) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["version"] == "0.8.2"
+    assert body["version"] == "0.8.4"
     assert body["desktop_window"] == {
         "default_width": 1440,
         "default_height": 900,
-        "minimum_width": 1280,
-        "minimum_height": 760,
+        "minimum_width": 960,
+        "minimum_height": 700,
         "recommended_width": 1440,
         "recommended_height": 900,
-        "content_max_width": 1080,
+        "content_max_width": 1660,
     }
     for flag in [
         "fixed_workbench_layout",

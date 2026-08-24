@@ -135,7 +135,7 @@ def main() -> None:
     _write_startup_log("webview_imported")
 
     bridge = DesktopBridge()
-    window = webview.create_window("AVcleaner", f"http://{args.host}:{port}", width=1440, height=900, min_size=(1280, 760))
+    window = webview.create_window("AVcleaner", f"http://{args.host}:{port}", width=1440, height=900, min_size=(960, 700))
     bridge.window = window
     _write_startup_log("window_created")
 

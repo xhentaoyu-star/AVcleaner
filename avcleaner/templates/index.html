@@ -10,7 +10,7 @@
   </head>
   <body>
     <div class="app-layout">
-    <aside class="sidebar" data-zone="sidebar" aria-label="AVcleaner navigation">
+    <aside class="sidebar" data-zone="sidebar" aria-label="AVcleaner 主导航">
       <div class="sidebar-inner">
         <div class="sidebar-header"><div class="sidebar-brand">
           <div class="brand-mark" aria-hidden="true">
@@ -47,7 +47,7 @@
 
     <main id="app" class="app-shell content-shell">
       <div class="content-column">
-      <section id="firstRunHelper" class="notice safety-compact" hidden>
+      <section id="firstRunHelper" class="notice safety-compact" tabindex="-1" hidden>
         <div class="safety-compact-line">
           <strong>安全预览：</strong>
           <span>扫描和预览不会修改文件，只有点击执行并确认后才会改名或隔离。</span>
@@ -71,7 +71,7 @@
         </div>
       </section>
 
-      <section data-panel="workspace" class="panel active workbench-shell" data-workbench-version="0.8.2">
+      <section data-panel="workspace" class="panel active workbench-shell" data-workbench-version="0.8.4">
         <section class="step-section workflow-section command-card" data-zone="command">
           <div class="command-heading">
             <div class="section-heading">
@@ -87,10 +87,10 @@
             </div>
             <button id="folderPickerBtn" class="icon-btn" type="button" title="选择文件夹" aria-label="选择文件夹"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-folder"></use></svg></button>
             <div class="mode-toggle segmented-control" role="group" aria-label="预览模式">
-              <button type="button" data-preview-mode="rule" class="active" aria-pressed="true"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-rule-preview"></use></svg><span>规则预览</span></button>
-              <button type="button" data-preview-mode="ai" aria-pressed="false" hidden><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-ai"></use></svg><span>AI 智能预览</span></button>
+              <button type="button" data-preview-mode="rule" class="active" aria-pressed="true" title="使用本地规则"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-rule-preview"></use></svg><span>规则</span></button>
+              <button type="button" data-preview-mode="ai" aria-pressed="false" title="使用 LLM 辅助建议" hidden><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-ai"></use></svg><span>AI</span></button>
             </div>
-            <button id="analyzeBtn" class="primary has-icon" type="button" title="扫描并生成预览"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-analyze"></use></svg><span>规则预览</span></button>
+            <button id="analyzeBtn" class="primary has-icon" type="button" title="扫描并生成预览"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-analyze"></use></svg><span>生成规则预览</span></button>
             <button id="refreshPlanBtn" class="icon-btn" type="button" title="刷新当前预览" aria-label="刷新当前预览"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-refresh"></use></svg></button>
             <button id="validateBtn" class="icon-btn" type="button" title="重新校验" aria-label="重新校验"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-refresh"></use></svg></button>
           </div>
@@ -298,6 +298,22 @@
             <h2>垃圾候选</h2>
           </div>
           <p class="privacy-note">隔离不是永久删除，可通过历史回滚恢复。大文件隔离可能耗时，但仍不会覆盖或永久删除文件。</p>
+          <section class="location-card" aria-labelledby="quarantineLocationHeading">
+            <div class="location-card-copy">
+              <span class="eyebrow">保存位置</span>
+              <h3 id="quarantineLocationHeading">当前隔离文件夹</h3>
+              <p id="quarantineLocationStatus" role="status" aria-live="polite">正在读取隔离位置…</p>
+            </div>
+            <div class="location-control">
+              <label class="sr-only" for="quarantineLocation">当前隔离文件夹</label>
+              <input id="quarantineLocation" type="text" readonly value="正在读取…" />
+              <button id="quarantineFolderPickerBtn" class="btn-secondary has-icon" type="button">
+                <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-folder"></use></svg>
+                <span>选择位置</span>
+              </button>
+              <button id="resetQuarantineFolderBtn" class="btn-quiet" type="button">恢复默认</button>
+            </div>
+          </section>
           <div class="table-wrap small-table">
             <table>
               <thead>
@@ -427,7 +443,18 @@
             <input id="llmSendPath" type="checkbox" />
             发送完整路径
           </label>
-          <button id="testLlmBtn" type="button">测试 LLM</button>
+          <section id="llmTestStatus" class="connection-status" data-status="not_tested" role="status" aria-live="polite" aria-labelledby="llmTestStatusLabel">
+            <span class="connection-status-dot" aria-hidden="true"></span>
+            <div>
+              <strong id="llmTestStatusLabel">尚未测试</strong>
+              <p id="llmTestStatusDetail">保存设置后测试一次，结果会保留在本机。</p>
+              <time id="llmTestStatusTime" datetime="">暂无测试记录</time>
+            </div>
+          </section>
+          <button id="testLlmBtn" class="btn-secondary has-icon" type="button">
+            <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-diagnostics"></use></svg>
+            <span>测试连接</span>
+          </button>
           <div id="llmTestSummary" class="diagnostics-summary"></div>
           <details id="llmRawJson" class="raw-json" data-debug-only data-debug-field="llm-raw" hidden>
             <summary>高级 / 排障：LLM 脱敏结果 JSON</summary>
@@ -494,7 +521,6 @@
           <div class="review-toolbar">
             <button id="importSettingsDryRunBtn" type="button">试运行导入</button>
             <button id="applyImportSettingsBtn" type="button">应用导入</button>
-            <button id="saveSettingsBtn" class="primary" type="button">保存设置</button>
           </div>
           <details id="settingsImportRawJson" class="raw-json" data-debug-only data-debug-field="settings-import-raw" hidden>
             <summary>高级 / 排障：导入结果 JSON</summary>
@@ -526,6 +552,13 @@
             <pre id="diagnosticsResult" class="test-result"></pre>
           </details>
         </section>
+        <div class="settings-actions">
+          <span id="settingsSaveStatus" role="status" aria-live="polite">设置已同步</span>
+          <button id="saveSettingsBtn" class="primary has-icon" type="button">
+            <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#icon-safe-select"></use></svg>
+            <span>保存设置</span>
+          </button>
+        </div>
         </div>
       </section>
       </div>

@@ -27,7 +27,7 @@ def test_check_artifact_accepts_release_zip_and_matching_checksum(tmp_path: Path
     created = run_create_release_zip(dist, release_dir)
     assert created.returncode == 0, created.stderr + created.stdout
 
-    result = run_check_artifact(release_dir / "AVcleaner-v0.8.2-portable-win-x64.zip")
+    result = run_check_artifact(release_dir / "AVcleaner-v0.8.4-portable-win-x64.zip")
 
     assert result.returncode == 0, result.stderr + result.stdout
     assert "Artifact sanity check passed" in result.stdout
@@ -41,7 +41,7 @@ def test_release_zip_script_excludes_user_database_before_artifact_check(tmp_pat
     created = run_create_release_zip(dist, release_dir)
     assert created.returncode == 0, created.stderr + created.stdout
 
-    result = run_check_artifact(release_dir / "AVcleaner-v0.8.2-portable-win-x64.zip")
+    result = run_check_artifact(release_dir / "AVcleaner-v0.8.4-portable-win-x64.zip")
 
     assert result.returncode == 0, result.stderr + result.stdout
 

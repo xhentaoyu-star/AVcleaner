@@ -14,7 +14,8 @@ def test_review_layout_uses_responsive_two_pane_grid() -> None:
 
     assert 'class="review-workbench review-layout"' in html
     assert ".review-workbench" in css
-    assert "minmax(760px, 1fr) 380px" in css
+    assert "minmax(760px, 1fr) 360px" in css
+    assert "@media (min-width: 1540px)" in css
     assert "68%" not in css
     assert "32%" not in css
 

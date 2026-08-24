@@ -1,7 +1,7 @@
 param(
   [Parameter(Mandatory = $true)]
   [string]$ZipPath,
-  [string]$ExpectedVersion = "0.8.2"
+  [string]$ExpectedVersion = "0.8.4"
 )
 
 $ErrorActionPreference = "Stop"

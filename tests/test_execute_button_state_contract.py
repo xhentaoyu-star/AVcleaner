@@ -52,3 +52,15 @@ def test_confirm_button_is_required_before_execute_api_call() -> None:
     api_pos = text.index('/execute/start`', confirm_start)
     payload_pos = text.index("confirm: true", confirm_start)
     assert api_pos < payload_pos
+
+
+def test_first_execute_click_enables_visible_confirmation_button() -> None:
+    text = APP_JS.read_text(encoding="utf-8")
+    start = text.index("function showExecutionConfirm")
+    body = text[start : text.index("function scrollToExecutionReport", start)]
+
+    confirmation_pos = body.index("state.executionConfirmation =")
+    render_pos = body.index("renderExecutionConfirm(summary)")
+    refresh_pos = body.index("updateSummary()")
+
+    assert confirmation_pos < render_pos < refresh_pos

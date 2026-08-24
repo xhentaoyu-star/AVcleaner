@@ -1,7 +1,7 @@
 param(
   [Parameter(Mandatory = $true)]
   [string]$AppPath,
-  [string]$ExpectedVersion = "0.8.2",
+  [string]$ExpectedVersion = "0.8.4",
   [switch]$RunTempExecution
 )
 
@@ -33,6 +33,32 @@ function Get-AppExecutable([string]$PathValue) {
     return $found.FullName
   }
   Write-Error "Could not find AVcleaner.exe under: $PathValue"
+}
+
+function Remove-DirectoryWithRetry(
+  [Parameter(Mandatory = $true)]
+  [string]$Path,
+  [int]$MaxAttempts = 10,
+  [int]$DelayMilliseconds = 300
+) {
+  if (-not (Test-Path -LiteralPath $Path)) {
+    return
+  }
+
+  $lastError = $null
+  for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    try {
+      Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+      return
+    } catch {
+      $lastError = $_
+      if ($attempt -lt $MaxAttempts) {
+        Start-Sleep -Milliseconds $DelayMilliseconds
+      }
+    }
+  }
+
+  throw "Could not remove smoke-test directory after $MaxAttempts attempts: $Path. $($lastError.Exception.Message)"
 }
 
 function Invoke-Json($Method, $Uri, $Headers = @{}, $Body = $null) {
@@ -238,12 +264,15 @@ try {
   if ($process -and -not $process.HasExited) {
     Stop-Process -Id $process.Id -Force
   }
+  if ($process) {
+    Wait-Process -Id $process.Id -Timeout 10 -ErrorAction SilentlyContinue
+  }
   if ($completed) {
     if ($tempScan -and (Test-Path -LiteralPath $tempScan.FullName)) {
-      Remove-Item -LiteralPath $tempScan.FullName -Recurse -Force
+      Remove-DirectoryWithRetry $tempScan.FullName
     }
     if (Test-Path -LiteralPath $tempAppRoot) {
-      Remove-Item -LiteralPath $tempAppRoot -Recurse -Force
+      Remove-DirectoryWithRetry $tempAppRoot
     }
   } else {
     if ($tempAppRoot -and (Test-Path -LiteralPath $tempAppRoot)) {

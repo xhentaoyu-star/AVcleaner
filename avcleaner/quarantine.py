@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import errno
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -10,6 +11,15 @@ from .paths import quarantine_root, safe_relative_path
 from .repository import save_quarantine_manifest
 
 ProgressCallback = Callable[[int, int], None]
+
+
+@dataclass(frozen=True)
+class QuarantineBaseStatus:
+    configured_dir: str
+    effective_dir: Path
+    using_default: bool
+    fallback_active: bool
+    writable: bool
 
 
 def _is_writable_dir(path: Path) -> bool:
@@ -30,8 +40,30 @@ def _configured_quarantine_base(custom_dir: str = "") -> Path:
     return quarantine_root()
 
 
+def resolve_quarantine_base(custom_dir: str = "") -> QuarantineBaseStatus:
+    configured_dir = str(custom_dir or "").strip()
+    preferred = _configured_quarantine_base(configured_dir)
+    if _is_writable_dir(preferred):
+        return QuarantineBaseStatus(
+            configured_dir=configured_dir,
+            effective_dir=preferred,
+            using_default=not configured_dir,
+            fallback_active=False,
+            writable=True,
+        )
+
+    fallback = quarantine_root()
+    return QuarantineBaseStatus(
+        configured_dir=configured_dir,
+        effective_dir=fallback,
+        using_default=not configured_dir,
+        fallback_active=bool(configured_dir),
+        writable=_is_writable_dir(fallback),
+    )
+
+
 def choose_quarantine_root(scan_root: Path, source_path: Path, run_id: str, custom_dir: str = "") -> Path:
-    preferred = _configured_quarantine_base(custom_dir) / run_id
+    preferred = resolve_quarantine_base(custom_dir).effective_dir / run_id
     if _is_writable_dir(preferred):
         return preferred
 

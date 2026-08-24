@@ -33,7 +33,8 @@ def test_llm_test_saves_settings_before_testing() -> None:
 
     assert save_call < test_call
     assert 'method: "PUT"' in text[text.index("function persistSettingsFromForm") : test_start]
-    assert 'setBusy("validating", true)' in test_body
+    assert 'setBusy("testingLlm", true)' in test_body
+    assert 'setBusy("savingSettings", true)' not in test_body
     assert 'setBusy("requestingAi", true)' in test_body
 
 

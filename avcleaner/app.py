@@ -33,12 +33,15 @@ from .models import (
     LLMSuggestionApplyRequest,
     LLMSuggestionRejectRequest,
     LLMTestRequest,
+    LLMTestResponse,
+    LLMTestStatusResponse,
     PlanExecuteRequest,
     PlanItemPatchRequest,
     PlanLLMSuggestRequest,
     PlanSelectionRequest,
     PlanRequest,
     RecentFolderRequest,
+    QuarantineLocationResponse,
     RuleTestRequest,
     RuleTestResponse,
     RollbackPreviewRequest,
@@ -48,6 +51,7 @@ from .models import (
     SettingsImportRequest,
     SettingsImportResponse,
 )
+from .llm_test_status import get_llm_test_status, record_llm_test_status
 from .llm_review import (
     accept_llm_suggestion,
     ai_preview_item_ids,
@@ -85,6 +89,7 @@ from .rule_corpus import build_report as build_corpus_report
 from .rule_corpus import report_response_payload
 from .rules import MAX_RULE_TEST_FILENAME_LENGTH, suggest_name_with_trace
 from .scanner import scan_files
+from .quarantine import resolve_quarantine_base
 from .database import connect, utc_now_iso
 from .runtime import directory_writable, is_frozen, runtime_path_info
 from .settings_store import effective_llm_api_key, get_settings, preview_settings_import, put_settings, sanitized_settings_payload
@@ -236,11 +241,11 @@ def capabilities() -> dict:
         "desktop_window": {
             "default_width": 1440,
             "default_height": 900,
-            "minimum_width": 1280,
-            "minimum_height": 760,
+            "minimum_width": 960,
+            "minimum_height": 700,
             "recommended_width": 1440,
             "recommended_height": 900,
-            "content_max_width": 1080,
+            "content_max_width": 1660,
         },
         "video_extensions": sorted(VIDEO_EXTENSIONS),
         "sidecar_extensions": sorted(SIDECAR_EXTENSIONS),
@@ -471,6 +476,18 @@ def api_get_settings(_token: None = Depends(require_token)) -> AppSettings:
 @app.put("/api/settings")
 def api_put_settings(settings: AppSettings, _token: None = Depends(require_token)) -> AppSettings:
     return put_settings(settings)
+
+
+@app.get("/api/quarantine/location")
+def api_quarantine_location(_token: None = Depends(require_token)) -> QuarantineLocationResponse:
+    status = resolve_quarantine_base(get_settings().quarantine_dir)
+    return QuarantineLocationResponse(
+        configured_dir=status.configured_dir,
+        effective_dir=str(status.effective_dir),
+        using_default=status.using_default,
+        fallback_active=status.fallback_active,
+        writable=status.writable,
+    )
 
 
 @app.get("/api/settings/export")
@@ -840,8 +857,18 @@ async def api_llm_suggest(_token: None = Depends(require_token)):
 
 
 @app.post("/api/llm/test")
-async def api_llm_test(request: LLMTestRequest, _token: None = Depends(require_token)):
+async def api_llm_test(request: LLMTestRequest, _token: None = Depends(require_token)) -> LLMTestResponse:
     app_settings = get_settings()
     settings = request.settings or app_settings.llm
     settings = settings.model_copy(update={"api_key": settings.api_key or effective_llm_api_key(app_settings)})
-    return await check_llm_settings(settings)
+    response = await check_llm_settings(settings)
+    if request.settings is None:
+        record_llm_test_status(settings, response)
+    return response
+
+
+@app.get("/api/llm/test-status")
+def api_llm_test_status(_token: None = Depends(require_token)) -> LLMTestStatusResponse:
+    app_settings = get_settings()
+    settings = app_settings.llm.model_copy(update={"api_key": effective_llm_api_key(app_settings)})
+    return get_llm_test_status(settings)

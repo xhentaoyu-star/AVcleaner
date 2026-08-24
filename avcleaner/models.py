@@ -603,6 +603,18 @@ class LLMTestResponse(StrictModel):
     sanitized_message: str = ""
 
 
+class LLMTestStatusResponse(StrictModel):
+    status: Literal["not_tested", "passed", "failed", "settings_changed"] = "not_tested"
+    tested_at: str = ""
+    provider: str = ""
+    model: str = ""
+    compatibility_mode: str = ""
+    latency_ms: int = 0
+    schema_valid: bool | None = None
+    safety_valid: bool | None = None
+    error_code: str | None = None
+
+
 class LLMSuggestionPayloadPreview(StrictModel):
     item_id: str
     filename: str
@@ -727,6 +739,14 @@ class FolderPickerStateRequest(StrictModel):
 
 class FolderPickerStateResponse(StrictModel):
     last_folder_dialog_dir: str = ""
+
+
+class QuarantineLocationResponse(StrictModel):
+    configured_dir: str = ""
+    effective_dir: str
+    using_default: bool
+    fallback_active: bool
+    writable: bool
 
 
 class SettingsImportRequest(StrictModel):

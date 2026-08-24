@@ -47,15 +47,16 @@ def test_sidebar_contains_user_tools_without_visible_debug_toggle() -> None:
 
 def test_centered_card_workbench_css_contract() -> None:
     css = CSS.read_text(encoding="utf-8")
-    sidebar_css = css[css.index("/* OpenAver-style sidebar shell */") :]
+    sidebar_css = css[css.index("/* V0.8.4 product workspace shell */") :]
 
     assert ".app-layout" in sidebar_css
-    assert "grid-template-columns: 244px minmax(0, 1fr)" in sidebar_css
+    assert "grid-template-columns: var(--sidebar-width) minmax(0, 1fr)" in sidebar_css
     assert ".content-column" in sidebar_css
-    assert "max-width: 1080px" in sidebar_css
+    assert "--content-max: 1660px" in css
     assert ".review-workbench" in sidebar_css
-    assert "grid-template-columns: 1fr" in sidebar_css
-    assert "@media (max-width: 1279px)" in sidebar_css
+    assert "grid-template-columns: minmax(0, 1fr)" in sidebar_css
+    assert "@media (max-width: 1180px)" in sidebar_css
+    assert "@media (max-width: 820px)" in sidebar_css
 
 
 def test_sidebar_layout_capability_flags(client) -> None:

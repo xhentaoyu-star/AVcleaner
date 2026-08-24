@@ -3,7 +3,10 @@ const UI_DETAIL_MODE_KEY = "avcleaner.ui_detail_mode";
 const state = {
   capabilities: null,
   settings: null,
+  settingsDirty: false,
   folderPickerState: null,
+  quarantineLocation: null,
+  llmTestStatus: null,
   scan: null,
   plan: null,
   llmSuggestions: [],
@@ -34,6 +37,7 @@ const state = {
 
 const PLAN_TABLE_COLS = 8;
 const $ = (selector) => document.querySelector(selector);
+const preferredScrollBehavior = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
 const apiToken = document.querySelector('meta[name="avcleaner-token"]')?.content || "";
 const FEEDBACK_TYPES = new Set(["info", "success", "warning", "error", "loading"]);
 
@@ -57,6 +61,12 @@ const BUSY_KEYS = [
   "rollingBack",
   "loadingHistory",
   "loadingDiagnostics",
+  "loadingSummary",
+  "choosingFolder",
+  "savingSettings",
+  "testingLlm",
+  "testingRules",
+  "importingSettings",
 ];
 
 function loadUiDetailMode() {
@@ -1257,7 +1267,13 @@ function updateSummary() {
   setText("#currentMode", state.diagnostics?.summary?.runtime_mode || state.diagnostics?.runtime?.mode || "-");
   setText("#statusRuleVersion", state.settings?.rules?.ruleset_version || state.capabilities?.ruleset_version || "v1");
   const llm = state.settings?.llm || {};
-  setText("#aiModelStatus", llmConfigured() ? `${llm.provider || "LLM"} / ${llm.model || "-"}` : "未配置");
+  const llmStatusLabel = {
+    passed: "已测试",
+    failed: "测试失败",
+    settings_changed: "需重测",
+    testing: "测试中",
+  }[state.llmTestStatus?.status] || "未测试";
+  setText("#aiModelStatus", llmConfigured() ? `${llm.model || llm.provider || "LLM"} · ${llmStatusLabel}` : "未配置");
   setStatus(state.lastStatus.message || "待命", state.lastStatus.type || "info");
 
   const executeState = getExecuteButtonState();
@@ -1291,6 +1307,34 @@ function updateSummary() {
   if (refreshPlanBtn) refreshPlanBtn.disabled = isBusyNow || !state.plan?.plan_id;
   const confirmExecuteBtn = $("#confirmExecuteBtn");
   if (confirmExecuteBtn) confirmExecuteBtn.disabled = isBusyNow || !state.executionConfirmation;
+  const cancelExecutionBtn = $("#cancelExecutionBtn");
+  if (cancelExecutionBtn) cancelExecutionBtn.disabled = isBusy("executing");
+  const testLlmBtn = $("#testLlmBtn");
+  if (testLlmBtn) {
+    testLlmBtn.disabled = isBusyNow;
+    setButtonContent(testLlmBtn, "diagnostics", isBusy("testingLlm") ? "正在测试…" : "测试连接");
+  }
+  const saveSettingsBtn = $("#saveSettingsBtn");
+  if (saveSettingsBtn) {
+    saveSettingsBtn.disabled = isBusyNow || !state.settingsDirty;
+    setButtonContent(saveSettingsBtn, "safe-select", isBusy("savingSettings") ? "正在保存…" : "保存设置");
+  }
+  const testRuleBtn = $("#testRuleBtn");
+  if (testRuleBtn) {
+    testRuleBtn.disabled = isBusyNow;
+    testRuleBtn.textContent = isBusy("testingRules") ? "正在测试…" : "测试规则";
+  }
+  const quarantineFolderPickerBtn = $("#quarantineFolderPickerBtn");
+  if (quarantineFolderPickerBtn) quarantineFolderPickerBtn.disabled = isBusyNow || !state.settings;
+  const resetQuarantineFolderBtn = $("#resetQuarantineFolderBtn");
+  if (resetQuarantineFolderBtn) {
+    const alreadyDefault = Boolean(state.quarantineLocation?.using_default && !state.quarantineLocation?.fallback_active);
+    resetQuarantineFolderBtn.disabled = isBusyNow || !state.settings || alreadyDefault;
+  }
+  for (const id of ["#refreshRunsBtn", "#refreshDiagnosticsBtn", "#copyDiagnosticsBtn", "#exportSettingsBtn", "#importSettingsDryRunBtn", "#applyImportSettingsBtn"]) {
+    const node = $(id);
+    if (node) node.disabled = isBusyNow;
+  }
   const llmSection = $("#llmSection");
   if (llmSection) llmSection.hidden = true;
   renderFilterOptions();
@@ -1982,6 +2026,37 @@ function renderTrash() {
   }
 }
 
+function renderQuarantineLocation(location = state.quarantineLocation) {
+  const input = $("#quarantineLocation");
+  const status = $("#quarantineLocationStatus");
+  if (!input || !status) return;
+  if (!location) {
+    input.value = "正在读取…";
+    status.textContent = "正在读取隔离位置…";
+    return;
+  }
+  input.value = location.effective_dir || "";
+  input.title = location.effective_dir || "";
+  if (location.fallback_active) {
+    status.textContent = "所选位置不可写，当前已安全改用默认隔离文件夹。";
+    status.dataset.status = "warning";
+  } else if (location.using_default) {
+    status.textContent = "正在使用 AVcleaner 默认隔离文件夹。";
+    status.dataset.status = location.writable ? "ready" : "error";
+  } else {
+    status.textContent = location.writable ? "自定义位置可用，新的隔离文件会保存到这里。" : "当前隔离位置不可写。";
+    status.dataset.status = location.writable ? "ready" : "error";
+  }
+  const reset = $("#resetQuarantineFolderBtn");
+  if (reset) reset.disabled = busyAny() || Boolean(location.using_default && !location.fallback_active);
+}
+
+async function loadQuarantineLocation() {
+  state.quarantineLocation = await api("/api/quarantine/location");
+  renderQuarantineLocation();
+  return state.quarantineLocation;
+}
+
 function isLargeThunderTempFile(item) {
   const name = String(item?.original_name || item?.relative_path || "").toLowerCase();
   return (name.endsWith(".xltd") || name.endsWith(".bt.xltd")) && Number(item?.size || 0) >= 100 * 1024 * 1024;
@@ -2142,6 +2217,50 @@ function renderLlmTestSummary(response) {
   );
 }
 
+function renderLlmTestStatus(status = state.llmTestStatus) {
+  const panel = $("#llmTestStatus");
+  if (!panel) return;
+  const current = status || { status: "not_tested" };
+  const labels = {
+    not_tested: "尚未测试",
+    testing: "正在测试连接",
+    passed: "连接测试通过",
+    failed: "连接测试失败",
+    settings_changed: "设置已变更，需要重新测试",
+  };
+  const details = {
+    not_tested: "保存设置后测试一次，结果会保留在本机。",
+    testing: "正在验证连接、返回格式和安全约束。",
+    passed: `${current.provider || "LLM"} · ${current.model || "未命名模型"} · ${current.latency_ms || 0} ms`,
+    failed: current.error_code ? `错误：${friendlyCode(current.error_code)}` : "连接或返回内容未通过验证。",
+    settings_changed: "当前设置与上次测试时不同，旧结果不再代表当前连接。",
+  };
+  panel.dataset.status = current.status || "not_tested";
+  setText("#llmTestStatusLabel", labels[current.status] || labels.not_tested);
+  setText("#llmTestStatusDetail", details[current.status] || details.not_tested);
+  const time = $("#llmTestStatusTime");
+  if (time) {
+    const date = current.tested_at ? new Date(current.tested_at) : null;
+    const valid = date && Number.isFinite(date.getTime());
+    time.dateTime = valid ? date.toISOString() : "";
+    time.textContent = valid ? `上次测试：${date.toLocaleString("zh-CN", { hour12: false })}` : "暂无测试记录";
+  }
+  updateSummary();
+}
+
+async function loadLlmTestStatus() {
+  state.llmTestStatus = await api("/api/llm/test-status");
+  renderLlmTestStatus();
+  return state.llmTestStatus;
+}
+
+function markLlmSettingsChanged() {
+  markSettingsChanged();
+  if (!["passed", "failed"].includes(state.llmTestStatus?.status)) return;
+  state.llmTestStatus = { ...state.llmTestStatus, status: "settings_changed" };
+  renderLlmTestStatus();
+}
+
 function llmConfigured() {
   const llm = state.settings?.llm || {};
   return llm.provider && llm.provider !== "disabled" && Boolean(llm.model);
@@ -2163,7 +2282,7 @@ function renderPreviewModeControls() {
   }
   const analyzeBtn = $("#analyzeBtn");
   if (analyzeBtn) {
-    setButtonContent(analyzeBtn, state.previewMode === "ai" && aiPreviewAvailable() ? "ai" : "analyze", state.previewMode === "ai" && aiPreviewAvailable() ? "AI 智能预览" : "规则预览");
+    setButtonContent(analyzeBtn, state.previewMode === "ai" && aiPreviewAvailable() ? "ai" : "analyze", state.previewMode === "ai" && aiPreviewAvailable() ? "生成 AI 预览" : "生成规则预览");
     analyzeBtn.title = state.previewMode === "ai" && aiPreviewAvailable() ? "扫描并生成 AI 智能预览，不会执行文件" : "扫描并生成规则预览，不会执行文件";
   }
 }
@@ -2186,6 +2305,20 @@ async function dismissFirstRunHelper() {
   toast("已关闭新手提示", "success");
 }
 
+function renderSettingsSaveStatus() {
+  const target = $("#settingsSaveStatus");
+  if (!target) return;
+  target.dataset.status = state.settingsDirty ? "dirty" : "saved";
+  target.textContent = state.settingsDirty ? "有未保存的更改" : "设置已同步";
+  const button = $("#saveSettingsBtn");
+  if (button) button.disabled = busyAny() || !state.settingsDirty;
+}
+
+function markSettingsChanged() {
+  state.settingsDirty = true;
+  renderSettingsSaveStatus();
+}
+
 async function loadSettings() {
   state.settings = await api("/api/settings");
   $("#llmProvider").value = state.settings.llm.provider;
@@ -2195,6 +2328,8 @@ async function loadSettings() {
   $("#llmApiKey").value = state.settings.llm.api_key || "";
   $("#llmSendPath").checked = state.settings.llm.send_full_path;
   syncRuleFormFromSettings();
+  state.settingsDirty = false;
+  renderSettingsSaveStatus();
   updateLlmModeHelp();
   renderFirstRunHelper();
   renderPreviewModeControls();
@@ -2212,9 +2347,12 @@ async function persistSettingsFromForm({ showSuccess = true } = {}) {
     method: "PUT",
     body: JSON.stringify(state.settings),
   });
+  state.settingsDirty = false;
+  renderSettingsSaveStatus();
   $("#llmApiKey").value = "";
   renderFirstRunHelper();
   renderPreviewModeControls();
+  await Promise.allSettled([loadQuarantineLocation(), loadLlmTestStatus()]);
   if (showSuccess) {
     toast("设置已保存", "success");
     setStatus("设置已保存", "success");
@@ -2223,29 +2361,30 @@ async function persistSettingsFromForm({ showSuccess = true } = {}) {
 }
 
 async function saveSettings() {
-  if (isBusy("validating")) return;
-  setBusy("validating", true);
+  if (isBusy("savingSettings")) return;
+  setBusy("savingSettings", true);
   setLoading("settings");
   showFeedback("保存设置中", { type: "loading" });
   setStatus("保存设置中", "loading");
   try {
     await persistSettingsFromForm();
   } finally {
-    setBusy("validating", false);
+    setBusy("savingSettings", false);
     setLoading("");
   }
 }
 async function testLlm() {
-  if (isBusy("requestingAi") || isBusy("validating")) return;
-  setBusy("validating", true);
+  if (isBusy("requestingAi") || isBusy("testingLlm") || isBusy("savingSettings")) return;
+  setBusy("testingLlm", true);
   setLoading("settings");
   showFeedback("保存 LLM 设置中", { type: "loading" });
   setStatus("保存 LLM 设置中", "loading");
   try {
     await persistSettingsFromForm({ showSuccess: false });
-    setBusy("validating", false);
     setBusy("requestingAi", true);
     setLoading("llm");
+    state.llmTestStatus = { ...(state.llmTestStatus || {}), status: "testing" };
+    renderLlmTestStatus();
     showFeedback("LLM 测试中", { type: "loading" });
     setStatus("LLM 测试中", "loading");
     const response = await api("/api/llm/test", {
@@ -2254,58 +2393,86 @@ async function testLlm() {
     });
     renderLlmTestSummary(response);
     $("#llmTestResult").textContent = JSON.stringify(response, null, 2);
+    await loadLlmTestStatus();
     toast(response.ok ? "LLM 测试完成" : "LLM 测试失败", response.ok ? "success" : "warning");
     setStatus(response.ok ? "LLM 测试完成" : "LLM 测试失败", response.ok ? "success" : "warning");
   } finally {
-    setBusy("validating", false);
+    if (state.llmTestStatus?.status === "testing") {
+      await loadLlmTestStatus().catch(() => {
+        state.llmTestStatus = { ...state.llmTestStatus, status: "failed", error_code: "operation_failed" };
+        renderLlmTestStatus();
+      });
+    }
+    setBusy("testingLlm", false);
     setBusy("requestingAi", false);
     setLoading("");
   }
 }
 async function testRules() {
+  if (isBusy("testingRules")) return;
   const filename = $("#ruleTestFilename").value.trim();
   if (!filename) {
     toast("filename_required");
     return;
   }
-  const response = await api("/api/rules/test", {
-    method: "POST",
-    body: JSON.stringify({
-      filename,
-      settings_override: {
-        output_template: $("#ruleOutputTemplate").value.trim() || "{code}{part}{variant}{language}{ext}",
-        remove_ad_domains: linesFromTextarea("#ruleRemoveAdDomains"),
-        remove_noise_tokens: linesFromTextarea("#ruleRemoveNoiseTokens"),
-        preserve_sidecar_language: $("#rulePreserveSidecarLanguage").checked,
-        preserve_variant: $("#rulePreserveVariant").checked,
-        preserve_part_suffix: $("#rulePreservePartSuffix").checked,
-        review_threshold: Number($("#ruleReviewThreshold").value || 0.7),
-      },
-    }),
-  });
-  $("#ruleTestResult").textContent = JSON.stringify(response, null, 2);
+  setBusy("testingRules", true);
+  try {
+    const response = await api("/api/rules/test", {
+      method: "POST",
+      body: JSON.stringify({
+        filename,
+        settings_override: {
+          output_template: $("#ruleOutputTemplate").value.trim() || "{code}{part}{variant}{language}{ext}",
+          remove_ad_domains: linesFromTextarea("#ruleRemoveAdDomains"),
+          remove_noise_tokens: linesFromTextarea("#ruleRemoveNoiseTokens"),
+          preserve_sidecar_language: $("#rulePreserveSidecarLanguage").checked,
+          preserve_variant: $("#rulePreserveVariant").checked,
+          preserve_part_suffix: $("#rulePreservePartSuffix").checked,
+          review_threshold: Number($("#ruleReviewThreshold").value || 0.7),
+        },
+      }),
+    });
+    $("#ruleTestResult").textContent = JSON.stringify(response, null, 2);
+    toast("规则测试完成", "success");
+  } finally {
+    setBusy("testingRules", false);
+  }
 }
 
 async function exportSettings() {
-  const response = await api("/api/settings/export");
-  const text = JSON.stringify(response, null, 2);
-  $("#settingsExportResult").textContent = text;
-  $("#settingsImportPayload").value = JSON.stringify(response.settings, null, 2);
+  if (isBusy("exporting")) return;
+  setBusy("exporting", true);
+  try {
+    const response = await api("/api/settings/export");
+    const text = JSON.stringify(response, null, 2);
+    $("#settingsExportResult").textContent = text;
+    $("#settingsImportPayload").value = JSON.stringify(response.settings, null, 2);
+    toast("设置已导出到下方文本框", "success");
+  } finally {
+    setBusy("exporting", false);
+  }
 }
 
 async function importSettings(dryRun) {
+  if (isBusy("importingSettings")) return;
   const raw = $("#settingsImportPayload").value.trim();
   if (!raw) {
     toast("settings_import_required");
     return;
   }
-  const response = await api("/api/settings/import", {
-    method: "POST",
-    body: JSON.stringify({ settings: JSON.parse(raw), dry_run: dryRun }),
-  });
-  $("#settingsImportResult").textContent = JSON.stringify(response, null, 2);
-  if (!dryRun && response.settings) {
-    await loadSettings();
+  setBusy("importingSettings", true);
+  try {
+    const response = await api("/api/settings/import", {
+      method: "POST",
+      body: JSON.stringify({ settings: JSON.parse(raw), dry_run: dryRun }),
+    });
+    $("#settingsImportResult").textContent = JSON.stringify(response, null, 2);
+    if (!dryRun && response.settings) {
+      await loadSettings();
+      await Promise.all([loadQuarantineLocation(), loadLlmTestStatus()]);
+    }
+  } finally {
+    setBusy("importingSettings", false);
   }
 }
 
@@ -2369,24 +2536,84 @@ function folderPickerInitialDir() {
     || "";
 }
 
-async function chooseFolder() {
+async function chooseNativeFolder(initialDir) {
   const bridge = window.pywebview?.api;
   if (!bridge?.choose_folder) {
     toast("浏览器模式不支持系统文件夹选择窗口，请手动粘贴路径。", "warning");
     setStatus("浏览器模式不支持系统文件夹选择窗口", "warning");
-    return;
+    return null;
   }
+  return bridge.choose_folder(initialDir || "");
+}
+
+async function chooseFolder() {
+  if (isBusy("choosingFolder")) return;
+  setBusy("choosingFolder", true);
   showFeedback("正在打开文件夹选择窗口", { type: "loading" });
-  const response = await bridge.choose_folder(folderPickerInitialDir());
-  if (!response?.ok || !response.path) {
-    toast("已取消选择文件夹", "info");
-    setStatus("已取消选择文件夹", "info");
-    return;
+  try {
+    const response = await chooseNativeFolder(folderPickerInitialDir());
+    if (!response?.ok || !response.path) {
+      if (response) {
+        toast("已取消选择文件夹", "info");
+        setStatus("已取消选择文件夹", "info");
+      }
+      return;
+    }
+    $("#rootPath").value = response.path;
+    await saveFolderPickerState(response.path).catch(() => {});
+    toast("已选择文件夹", "success");
+    setStatus("已选择文件夹", "success");
+  } finally {
+    setBusy("choosingFolder", false);
   }
-  $("#rootPath").value = response.path;
-  await saveFolderPickerState(response.path).catch(() => {});
-  toast("已选择文件夹", "success");
-  setStatus("已选择文件夹", "success");
+}
+
+async function chooseFolderFromSidebar() {
+  activateMainTab("workspace");
+  await chooseFolder();
+}
+
+async function chooseQuarantineFolder() {
+  if (isBusy("choosingFolder") || !state.settings) return;
+  setBusy("choosingFolder", true);
+  showFeedback("正在选择隔离文件夹", { type: "loading" });
+  try {
+    const initialDir = state.quarantineLocation?.effective_dir || state.settings?.quarantine_dir || "";
+    const response = await chooseNativeFolder(initialDir);
+    if (!response?.ok || !response.path) return;
+    state.settings.quarantine_dir = response.path;
+    state.settings = await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify(state.settings),
+    });
+    const input = $("#quarantineDir");
+    if (input) input.value = response.path;
+    await loadQuarantineLocation();
+    toast("隔离位置已更新", "success");
+    setStatus("隔离位置已更新", "success");
+  } finally {
+    setBusy("choosingFolder", false);
+  }
+}
+
+async function resetQuarantineFolder() {
+  if (isBusy("savingSettings") || !state.settings) return;
+  setBusy("savingSettings", true);
+  showFeedback("正在恢复默认隔离位置", { type: "loading" });
+  try {
+    state.settings.quarantine_dir = "";
+    state.settings = await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify(state.settings),
+    });
+    const input = $("#quarantineDir");
+    if (input) input.value = "";
+    await loadQuarantineLocation();
+    toast("已恢复默认隔离位置", "success");
+    setStatus("已恢复默认隔离位置", "success");
+  } finally {
+    setBusy("savingSettings", false);
+  }
 }
 
 async function clearRecentFolders() {
@@ -2624,6 +2851,7 @@ function renderExecutionConfirm(summary) {
 function hideExecutionConfirm() {
   state.executionConfirmation = null;
   renderExecutionConfirm(null);
+  updateSummary();
 }
 
 function invalidateExecutionSummary() {
@@ -2643,11 +2871,13 @@ function showExecutionConfirm(summary, selected) {
     selected_item_ids: selected.map((item) => item.id),
   };
   renderExecutionConfirm(summary);
-  $("#executionConfirmPanel")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  updateSummary();
+  $("#executionConfirmPanel")?.scrollIntoView({ behavior: preferredScrollBehavior(), block: "center" });
+  $("#confirmExecuteBtn")?.focus({ preventScroll: true });
 }
 
 function scrollToExecutionReport() {
-  $("#executionReportPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  $("#executionReportPanel")?.scrollIntoView({ behavior: preferredScrollBehavior(), block: "start" });
 }
 
 function executionReportFromResponse(response) {
@@ -2801,21 +3031,27 @@ async function showExecutionSummary() {
     toast("no_plan", "warning");
     return null;
   }
+  if (isBusy("loadingSummary")) return null;
+  setBusy("loadingSummary", true);
   showFeedback("正在读取执行摘要", { type: "loading" });
-  const selected = selectedExecutableItems();
-  const response = await api(`/api/plans/${state.plan.plan_id}/execution-summary`, {
-    method: "POST",
-    body: JSON.stringify({
-      selected_item_ids: selected.map((item) => item.id),
-      plan_hash: state.plan.plan_hash,
-    }),
-  });
-  state.executionSummary = response;
-  renderExecutionSummary(response);
-  updateSummary();
-  toast("执行摘要已加载", response.ok_to_execute ? "success" : "warning");
-  setStatus("执行摘要已加载", response.ok_to_execute ? "success" : "warning");
-  return response;
+  try {
+    const selected = selectedExecutableItems();
+    const response = await api(`/api/plans/${state.plan.plan_id}/execution-summary`, {
+      method: "POST",
+      body: JSON.stringify({
+        selected_item_ids: selected.map((item) => item.id),
+        plan_hash: state.plan.plan_hash,
+      }),
+    });
+    state.executionSummary = response;
+    renderExecutionSummary(response);
+    updateSummary();
+    toast("执行摘要已加载", response.ok_to_execute ? "success" : "warning");
+    setStatus("执行摘要已加载", response.ok_to_execute ? "success" : "warning");
+    return response;
+  } finally {
+    setBusy("loadingSummary", false);
+  }
 }
 
 function llmReviewItemIds() {
@@ -3343,18 +3579,51 @@ async function copyDiagnostics() {
   setStatus("诊断 JSON 已复制", "success");
 }
 
+function activateMainTab(tab) {
+  for (const item of document.querySelectorAll(".sidebar-nav button[data-tab]")) {
+    const active = item.dataset.tab === tab;
+    item.classList.toggle("active", active);
+    if (active) item.setAttribute("aria-current", "page");
+    else item.removeAttribute("aria-current");
+  }
+  for (const panel of document.querySelectorAll(".panel")) {
+    panel.classList.toggle("active", panel.dataset.panel === tab);
+  }
+  const search = $("#globalSearch");
+  if (search) {
+    search.disabled = tab !== "workspace";
+    search.placeholder = tab === "workspace" ? "搜索当前预览" : "仅工作台可用";
+  }
+  if (tab === "settings" && !state.diagnostics) {
+    loadDiagnostics().catch((error) => toast(error.message));
+  }
+  if (tab === "trash" && !state.quarantineLocation) {
+    loadQuarantineLocation().catch((error) => toast(error.message));
+  }
+}
+
 function setupTabs() {
   for (const button of document.querySelectorAll(".sidebar-nav button[data-tab]")) {
-    button.addEventListener("click", () => {
-      for (const item of document.querySelectorAll(".sidebar-nav button[data-tab]")) item.classList.remove("active");
-      for (const panel of document.querySelectorAll(".panel")) panel.classList.remove("active");
-      button.classList.add("active");
-      document.querySelector(`[data-panel="${button.dataset.tab}"]`).classList.add("active");
-      if (button.dataset.tab === "settings" && !state.diagnostics) {
-        loadDiagnostics().catch((error) => toast(error.message));
-      }
-    });
+    button.addEventListener("click", () => activateMainTab(button.dataset.tab));
   }
+  activateMainTab("workspace");
+}
+
+function showLatestNotice() {
+  const message = state.lastStatus?.message && state.lastStatus.message !== "待命"
+    ? state.lastStatus.message
+    : "暂无新通知，AVcleaner 已就绪。";
+  toast(message, state.lastStatus?.type || "info");
+}
+
+function openHelpPanel() {
+  activateMainTab("workspace");
+  const helper = $("#firstRunHelper");
+  const details = $("#firstRunDetails");
+  if (helper) helper.hidden = false;
+  if (details) details.hidden = false;
+  helper?.scrollIntoView({ behavior: preferredScrollBehavior(), block: "start" });
+  helper?.focus({ preventScroll: true });
 }
 
 function setupSettingsTabs() {
@@ -3423,6 +3692,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     renderRunsTable();
   });
   $("#llmCompatibilityMode")?.addEventListener("change", updateLlmModeHelp);
+  for (const selector of ["#llmProvider", "#llmCompatibilityMode", "#llmBaseUrl", "#llmModel", "#llmApiKey", "#llmSendPath"]) {
+    const control = $(selector);
+    if (!control) continue;
+    control.addEventListener(control.matches("select, input[type='checkbox']") ? "change" : "input", markLlmSettingsChanged);
+  }
+  for (const selector of ["#ruleOutputTemplate", "#ruleRemoveAdDomains", "#ruleRemoveNoiseTokens", "#rulePreserveSidecarLanguage", "#rulePreserveVariant", "#rulePreservePartSuffix", "#ruleReviewThreshold", "#quarantineDir"]) {
+    const control = $(selector);
+    if (!control) continue;
+    control.addEventListener(control.matches("input[type='checkbox']") ? "change" : "input", markSettingsChanged);
+  }
   for (const button of document.querySelectorAll("[data-preview-mode]")) {
     button.addEventListener("click", () => {
       state.previewMode = button.dataset.previewMode || "rule";
@@ -3430,7 +3709,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
   bindClick("#folderPickerBtn", chooseFolder);
-  bindClick("#topFolderPickerBtn", chooseFolder);
+  bindClick("#topFolderPickerBtn", chooseFolderFromSidebar);
+  bindClick('[data-sidebar-tool="notice"]', showLatestNotice);
+  bindClick('[data-sidebar-tool="help"]', openHelpPanel);
+  bindClick("#quarantineFolderPickerBtn", chooseQuarantineFolder);
+  bindClick("#resetQuarantineFolderBtn", resetQuarantineFolder);
   bindClick("#analyzeBtn", analyze);
   bindClick("#scanBtn", scan);
   bindClick("#planBtn", plan);
@@ -3441,6 +3724,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindClick("#confirmExecuteBtn", confirmExecuteSelected);
   bindClick("#cancelExecutionBtn", () => {
     hideExecutionConfirm();
+    $("#executeBtn")?.focus();
     toast("已取消执行", "info");
     setStatus("已取消执行", "info");
   });
@@ -3475,6 +3759,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindClick("#copyDiagnosticsBtn", copyDiagnostics);
   await loadCapabilities().catch(() => {});
   await loadSettings().catch((error) => toast(error.message));
+  await loadQuarantineLocation().catch((error) => toast(error.message));
+  await loadLlmTestStatus().catch((error) => toast(error.message));
   await loadDiagnostics().catch(() => {});
   await loadFolderPickerState().catch(() => {});
   await loadRecentFolders().catch(() => {});
