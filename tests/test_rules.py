@@ -60,6 +60,27 @@ def test_junk_candidates_default_to_quarantine(tmp_path: Path) -> None:
     assert actions[subtitle.name] == "keep"
 
 
+def test_obvious_advertising_filenames_default_to_quarantine(tmp_path: Path) -> None:
+    advertising_video = tmp_path / "18+游戏大全(996gg.cc)-七龍珠H版-三國志H版-三國群淫傳等.mp4"
+    advertising_page = tmp_path / "聚 合 全 網 H 直 播.html"
+    advertising_video.write_bytes(b"video")
+    advertising_page.write_text("advertising", encoding="utf-8")
+
+    scan = scan_files(ScanRequest(root_path=str(tmp_path)))
+    for plan in [
+        build_plan(PlanRequest(root_path=scan.root_path, files=scan.files)),
+        create_plan(PlanRequest(root_path=scan.root_path, files=scan.files)),
+    ]:
+        by_name = {item.original_name: item for item in plan.items}
+        for file in [advertising_video, advertising_page]:
+            item = by_name[file.name]
+            assert item.action == "quarantine"
+            assert item.checked is True
+            assert item.selected is True
+            assert item.requires_review is False
+            assert item.reason == "obvious_advertising_filename"
+
+
 def test_large_temp_download_residue_requires_manual_selection(tmp_path: Path) -> None:
     residue = tmp_path / "midv-192-4k.mp4.xltd"
     with residue.open("wb") as handle:

@@ -11,7 +11,7 @@ def test_create_release_zip_script_has_safe_defaults() -> None:
 
     assert 'AVcleaner-v$Version-portable-win-x64.zip' in text
     assert "Compress-Archive" in text
-    assert "Get-FileHash" in text
+    assert "Get-Sha256Hex" in text
     assert "artifact-manifest.json" in text
     assert "AVcleaner.exe" in text
     assert ".venv" in text

@@ -157,6 +157,11 @@ const SELECTION_LOCK_EXPLANATIONS = {
     explanation: "这一项有阻止级问题，前端不会允许选择，后端也会拒绝执行。",
     suggested_action: "先修改建议文件名或跳过这一项。",
   },
+  "requires_review": {
+    title: "需要人工复核",
+    explanation: "这一项还没有达到自动处理条件，前端和后端都不会允许直接执行。",
+    suggested_action: "请先确认文件是否应处理，必要时手动修改后重新生成预览。",
+  },
   "not_executable": {
     title: "不是可执行动作",
     explanation: "保留、复核、跳过这类状态不会直接改动文件。",
@@ -249,6 +254,21 @@ const CODE_EXPLANATIONS = {
     title: "源文件已变化",
     explanation: "预览后源文件大小或时间戳发生变化，不能按旧计划执行。",
     suggested_action: "重新扫描并生成预览。",
+  },
+  "file_in_use": {
+    title: "文件正被其他程序占用",
+    explanation: "Windows 拒绝改名或移动这个文件。下载器、播放器或媒体服务仍在使用它。",
+    suggested_action: "暂停相关下载任务或退出占用程序，然后重新扫描并执行。",
+  },
+  "operation_failed": {
+    title: "文件操作失败",
+    explanation: "Windows 文件操作没有完成，且没有返回可安全归类的具体原因。",
+    suggested_action: "查看执行详情，确认文件是否被占用、权限受限或路径已变化。",
+  },
+  "requires_review_item_selected": {
+    title: "需复核项目不能直接执行",
+    explanation: "执行请求包含了仍需人工复核的项目，后端已阻止此次操作。",
+    suggested_action: "先复核该项目，或只执行已默认选中的安全项目。",
   },
   "path_too_long": {
     title: "路径过长",
@@ -630,6 +650,11 @@ const CODE_EXPLANATIONS = {
     explanation: "这是下载包里常见的广告说明、HTML 页面或推广文本。",
     suggested_action: "通常可以隔离。",
   },
+  "obvious_advertising_filename": {
+    title: "明确广告文件",
+    explanation: "文件名命中内置的明确广告词，例如“18+游戏大全”或“聚合全网 H 直播”。",
+    suggested_action: "已默认选择隔离，不需要人工复核。",
+  },
   "custom_junk_keyword": {
     title: "命中自定义垃圾关键词",
     explanation: "文件名命中了你在规则设置里配置的垃圾关键词。",
@@ -832,7 +857,7 @@ function lookupExplanation(code) {
 
 function severityFor(code) {
   const raw = String(code || "");
-  if (["blocking", "target_exists", "target_exists_case_insensitive", "duplicate_target", "duplicate_target_case_insensitive", "path_escape", "extension_changed", "empty_name", "invalid_character", "control_character", "trailing_dot_or_space", "reserved_name", "reserved_name_with_extension", "alternate_data_stream", "source_missing", "source_changed", "path_too_long", "restore_target_exists", "rollback_target_exists", "rollback_source_missing", "quarantine_file_missing", "rollback_file_changed", "unknown_run_item", "rollback_already_completed", "rollback_not_available", "blocking_item_selected", "invalid_target_name", "path_separator_in_target", "plan_hash_mismatch", "legacy_execute_disabled", "legacy_llm_suggest_disabled", "request_extra_fields", "llm_payload_privacy_violation", "blocking_suggestion", "failed", "rollback_failed"].includes(raw)) {
+  if (["blocking", "target_exists", "target_exists_case_insensitive", "duplicate_target", "duplicate_target_case_insensitive", "path_escape", "extension_changed", "empty_name", "invalid_character", "control_character", "trailing_dot_or_space", "reserved_name", "reserved_name_with_extension", "alternate_data_stream", "source_missing", "source_changed", "file_in_use", "operation_failed", "path_too_long", "restore_target_exists", "rollback_target_exists", "rollback_source_missing", "quarantine_file_missing", "rollback_file_changed", "unknown_run_item", "rollback_already_completed", "rollback_not_available", "blocking_item_selected", "invalid_target_name", "path_separator_in_target", "plan_hash_mismatch", "legacy_execute_disabled", "legacy_llm_suggest_disabled", "request_extra_fields", "llm_payload_privacy_violation", "blocking_suggestion", "failed", "rollback_failed"].includes(raw)) {
     return "blocking";
   }
   if (raw.startsWith("llm_") || ["warning", "low_confidence", "path_near_limit", "case_only_rename", "download_residue_or_shortcut", "empty_file", "advertising_text_or_html_file", "custom_junk_keyword", "requires_review", "partial_success", "rollback_partial", "interrupted", "abandoned", "invalid"].includes(raw)) {
@@ -1056,7 +1081,7 @@ function executableAction(item) {
 }
 
 function selectedExecutableItems(plan = state.plan) {
-  return (plan?.items || []).filter((item) => item.selected && executableAction(item));
+  return (plan?.items || []).filter((item) => item.selected && !item.requires_review && executableAction(item));
 }
 
 function getExecuteButtonState(plan = state.plan) {
@@ -1091,8 +1116,6 @@ function operationStatus() {
   const items = state.plan?.items || [];
   const blocking = state.plan?.summary?.blocking_items ?? items.filter(hasBlocking).length;
   if (blocking > 0) return { code: "blocked", label: "有阻止项", type: "warning" };
-  renderOperationStatus();
-  updateSummaryCardVisibility(counts);
 
   const executeState = getExecuteButtonState();
   if (executeState.enabled) return { code: "executable", label: "可执行", type: "success" };
@@ -1271,6 +1294,8 @@ function updateSummary() {
   const llmSection = $("#llmSection");
   if (llmSection) llmSection.hidden = true;
   renderFilterOptions();
+  renderOperationStatus();
+  updateSummaryCardVisibility(counts);
 }
 
 function cell(node, className = "") {

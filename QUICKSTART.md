@@ -11,12 +11,12 @@ AVcleaner cleans messy BT download folders. It generates a preview first, lets y
 ## 下载安装 / Download And Install
 
 1. 打开项目的 GitHub Releases 页面。
-2. 下载最新版本 `AVcleaner-v0.8.1-portable-win-x64.zip`。
+2. 下载最新版本 `AVcleaner-v0.8.2-portable-win-x64.zip`。
 3. 解压到一个固定目录，例如 `D:\Tools\AVcleaner`。
 4. 双击 `AVcleaner.exe` 启动。
 
 1. Open the project GitHub Releases page.
-2. Download the latest `AVcleaner-v0.8.1-portable-win-x64.zip`.
+2. Download the latest `AVcleaner-v0.8.2-portable-win-x64.zip`.
 3. Extract it to a stable folder, for example `D:\Tools\AVcleaner`.
 4. Run `AVcleaner.exe`.
 

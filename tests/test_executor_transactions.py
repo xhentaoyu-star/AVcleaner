@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from conftest import make_file
 
-from avcleaner.enums import RunItemState, RunState
+from avcleaner.enums import IssueCode, RunItemState, RunState
+from avcleaner.errors import AppError
 from avcleaner.models import PlanExecuteRequest, PlanRequest, ScanRequest
-from avcleaner.executor import execute_plan_by_id, rollback_run
+from avcleaner.executor import execute_plan_by_id, rollback_run, validate_execute_request
 from avcleaner.planner import create_plan
 from avcleaner.repository import create_run, create_scan, get_run, get_run_items, mark_interrupted_runs
 from avcleaner.scanner import scan_files
@@ -45,6 +48,78 @@ def test_case_only_rename_uses_two_step(tmp_path: Path) -> None:
     run_item = get_run_items(response.run_id)[0]
     assert run_item.temp_path
     assert (tmp_path / "ABP-123.mp4").exists()
+
+
+def test_locked_rename_retries_and_reports_file_in_use(tmp_path: Path, monkeypatch) -> None:
+    make_file(tmp_path, "hhd800.com@ABP-123.mp4")
+    plan = plan_for(tmp_path)
+    rename_calls = 0
+
+    def fail_with_windows_sharing_violation(_path: Path, _target: Path):
+        nonlocal rename_calls
+        rename_calls += 1
+        exc = PermissionError("simulated Windows sharing violation")
+        exc.winerror = 32
+        raise exc
+
+    monkeypatch.setattr(Path, "rename", fail_with_windows_sharing_violation)
+    monkeypatch.setattr("avcleaner.executor.RENAME_RETRY_DELAY_SECONDS", 0.0)
+    response = execute_plan_by_id(
+        plan.plan_id,
+        PlanExecuteRequest(selected_item_ids=[plan.items[0].id], confirm=True, plan_hash=plan.plan_hash),
+    )
+
+    run_item = get_run_items(response.run_id)[0]
+    assert rename_calls == 3
+    assert run_item.state == RunItemState.FAILED
+    assert run_item.message == "file_in_use"
+    assert run_item.issue_code == "file_in_use"
+
+
+def test_transient_file_lock_succeeds_on_retry(tmp_path: Path, monkeypatch) -> None:
+    make_file(tmp_path, "hhd800.com@ABP-123.mp4")
+    plan = plan_for(tmp_path)
+    original_rename = Path.rename
+    rename_calls = 0
+
+    def fail_twice_then_rename(path: Path, target: Path):
+        nonlocal rename_calls
+        rename_calls += 1
+        if rename_calls < 3:
+            exc = PermissionError("simulated transient Windows sharing violation")
+            exc.winerror = 32
+            raise exc
+        return original_rename(path, target)
+
+    monkeypatch.setattr(Path, "rename", fail_twice_then_rename)
+    monkeypatch.setattr("avcleaner.executor.RENAME_RETRY_DELAY_SECONDS", 0.0)
+
+    response = execute_plan_by_id(
+        plan.plan_id,
+        PlanExecuteRequest(selected_item_ids=[plan.items[0].id], confirm=True, plan_hash=plan.plan_hash),
+    )
+
+    run_item = get_run_items(response.run_id)[0]
+    assert rename_calls == 3
+    assert run_item.state == RunItemState.RENAMED
+    assert (tmp_path / "ABP-123.mp4").exists()
+
+
+def test_requires_review_quarantine_cannot_be_executed_directly(tmp_path: Path) -> None:
+    residue = tmp_path / "midv-192-4k.mp4.xltd"
+    with residue.open("wb") as handle:
+        handle.truncate(2 * 1024 * 1024 * 1024)
+    plan = plan_for(tmp_path)
+    item = plan.items[0]
+
+    assert item.requires_review is True
+    with pytest.raises(AppError) as exc_info:
+        validate_execute_request(
+            plan.plan_id,
+            PlanExecuteRequest(selected_item_ids=[item.id], confirm=True, plan_hash=plan.plan_hash),
+        )
+
+    assert exc_info.value.error_code == IssueCode.REQUIRES_REVIEW_ITEM_SELECTED
 
 
 def test_case_only_rename_restores_source_when_second_step_fails(tmp_path: Path, monkeypatch) -> None:

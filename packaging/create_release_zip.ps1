@@ -87,6 +87,17 @@ function Invoke-OptionalCommand([scriptblock]$Command) {
   }
 }
 
+function Get-Sha256Hex([string]$Path) {
+  $stream = [System.IO.File]::OpenRead($Path)
+  $sha256 = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    return (-join ($sha256.ComputeHash($stream) | ForEach-Object { $_.ToString("x2") }))
+  } finally {
+    $sha256.Dispose()
+    $stream.Dispose()
+  }
+}
+
 function Get-ReleaseGitStatus([string]$RepoRoot) {
   Invoke-OptionalCommand {
     git -C $RepoRoot status --porcelain --untracked-files=normal -- . ":(exclude)dist" ":(exclude)build" ":(exclude)release"
@@ -155,7 +166,7 @@ if (Test-Path -LiteralPath $ZipPath) {
 }
 Compress-Archive -Path $PackageDir -DestinationPath $ZipPath -Force
 
-$Hash = (Get-FileHash -LiteralPath $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$Hash = Get-Sha256Hex $ZipPath
 "$Hash  $ZipName" | Set-Content -LiteralPath $ShaPath -Encoding ASCII
 
 $ExternalManifest = [ordered]@{}

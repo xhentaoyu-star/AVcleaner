@@ -122,10 +122,12 @@ def decorate_plan_item(item: PlanItem) -> PlanItem:
     blocking = any(issue.blocking for issue in item.issues)
     selected = bool(item.checked or item.selected) and not blocking
     action = item.operation or item.action
-    selection_locked = blocking or action not in EXECUTABLE_ACTIONS
+    selection_locked = blocking or item.requires_review or action not in EXECUTABLE_ACTIONS
     selection_reason: str | None = None
     if blocking:
         selection_reason = "blocking"
+    elif item.requires_review:
+        selection_reason = "requires_review"
     elif action not in EXECUTABLE_ACTIONS:
         selection_reason = "not_executable"
     elif item.sidecar_type and not selected:

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import shutil
-import uuid
 import os
+import shutil
+import time
+import uuid
 from pathlib import Path
 
 from .enums import IssueCode, Operation, PlanState, RunItemState, RunState
@@ -25,6 +26,36 @@ from .repository import (
 )
 from .settings_store import get_settings
 from .validators import has_blocking_issues
+
+
+FILE_IN_USE_WINERRORS = {32, 33}
+RENAME_ATTEMPTS = 3
+RENAME_RETRY_DELAY_SECONDS = 0.2
+
+
+def _is_file_in_use_error(exc: BaseException) -> bool:
+    return isinstance(exc, OSError) and getattr(exc, "winerror", None) in FILE_IN_USE_WINERRORS
+
+
+def _operation_failure_code(exc: BaseException) -> str:
+    if _is_file_in_use_error(exc):
+        return str(IssueCode.FILE_IN_USE)
+    if isinstance(exc, FileNotFoundError):
+        return str(IssueCode.SOURCE_MISSING)
+    if isinstance(exc, FileExistsError):
+        return str(IssueCode.TARGET_EXISTS)
+    return "operation_failed"
+
+
+def _rename_with_retry(source: Path, target: Path) -> None:
+    for attempt in range(RENAME_ATTEMPTS):
+        try:
+            source.rename(target)
+            return
+        except OSError as exc:
+            if not _is_file_in_use_error(exc) or attempt == RENAME_ATTEMPTS - 1:
+                raise
+            time.sleep(RENAME_RETRY_DELAY_SECONDS)
 
 
 def _operation_record(item: ExecutionItem) -> OperationRecord:
@@ -63,6 +94,8 @@ def validate_execute_request(plan_id: str, request: PlanExecuteRequest):
     selected = [item for item in validated.items if item.id in requested_ids]
     if any(has_blocking_issues(item) for item in selected):
         raise AppError(IssueCode.BLOCKING_ITEM_SELECTED, 400)
+    if any(item.requires_review for item in selected):
+        raise AppError(IssueCode.REQUIRES_REVIEW_ITEM_SELECTED, 400)
     return validated, selected
 
 
@@ -114,8 +147,17 @@ def execute_plan_by_id(plan_id: str, request: PlanExecuteRequest, *, run_id: str
                 run_item = _execute_quarantine_item(run_item, Path(validated.root_path), item, settings.quarantine_dir)
             else:
                 run_item = upsert_run_item(run_item.model_copy(update={"state": RunItemState.SKIPPED, "message": "not_executable"}))
-        except Exception:
-            run_item = upsert_run_item(run_item.model_copy(update={"state": RunItemState.FAILED, "message": "operation_failed"}))
+        except Exception as exc:
+            failure_code = _operation_failure_code(exc)
+            run_item = upsert_run_item(
+                run_item.model_copy(
+                    update={
+                        "state": RunItemState.FAILED,
+                        "message": failure_code,
+                        "issue_code": failure_code,
+                    }
+                )
+            )
         completed.append(run_item)
         complete_item(run_id, index + 1, len(selected), str(run_item.message or run_item.state))
 
@@ -147,12 +189,12 @@ def _execute_rename_item(run_item: ExecutionItem, item) -> ExecutionItem:
         if temp.exists():
             return upsert_run_item(run_item.model_copy(update={"state": RunItemState.FAILED, "message": "temp_target_exists"}))
         run_item = upsert_run_item(run_item.model_copy(update={"temp_path": str(temp)}))
-        source.rename(temp)
+        _rename_with_retry(source, temp)
         try:
-            temp.rename(target)
-        except Exception:
+            _rename_with_retry(temp, target)
+        except Exception as exc:
             try:
-                temp.rename(source)
+                _rename_with_retry(temp, source)
             except Exception:
                 return upsert_run_item(
                     run_item.model_copy(
@@ -164,18 +206,23 @@ def _execute_rename_item(run_item: ExecutionItem, item) -> ExecutionItem:
                         }
                     )
                 )
+            failure_code = (
+                _operation_failure_code(exc)
+                if _is_file_in_use_error(exc)
+                else "rename_failed_source_restored"
+            )
             return upsert_run_item(
                 run_item.model_copy(
                     update={
                         "state": RunItemState.FAILED,
-                        "message": "rename_failed_source_restored",
-                        "issue_code": "rename_failed_source_restored",
+                        "message": failure_code,
+                        "issue_code": failure_code,
                         "temp_path": "",
                     }
                 )
             )
     else:
-        source.rename(target)
+        _rename_with_retry(source, target)
     return upsert_run_item(run_item.model_copy(update={"state": RunItemState.RENAMED, "message": "renamed", "target_path": str(target)}))
 
 

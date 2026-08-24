@@ -6,7 +6,7 @@ def test_capabilities_exposes_v070_release_features(client) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["version"] == "0.8.1"
+    assert body["version"] == "0.8.2"
     assert body["capabilities"]["manual_review"] is True
     assert body["capabilities"]["persisted_selection"] is True
     assert body["capabilities"]["plan_export"] is True

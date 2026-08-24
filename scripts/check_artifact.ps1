@@ -9,6 +9,17 @@ if (-not (Test-Path -LiteralPath $ArtifactPath)) {
   Write-Error "Artifact path not found: $ArtifactPath"
 }
 
+function Get-Sha256Hex([string]$Path) {
+  $stream = [System.IO.File]::OpenRead($Path)
+  $sha256 = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    return (-join ($sha256.ComputeHash($stream) | ForEach-Object { $_.ToString("x2") }))
+  } finally {
+    $sha256.Dispose()
+    $stream.Dispose()
+  }
+}
+
 function Get-PackageRoot([string]$SearchRoot) {
   $directExe = Join-Path $SearchRoot "AVcleaner.exe"
   if (Test-Path -LiteralPath $directExe) {
@@ -33,7 +44,7 @@ function Test-ChecksumFile([string]$ZipPath) {
     Write-Error "Checksum file does not contain a SHA256 hash: $shaPath"
   }
   $expected = $match.Value.ToLowerInvariant()
-  $actual = (Get-FileHash -LiteralPath $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $actual = Get-Sha256Hex $ZipPath
   if ($expected -ne $actual) {
     Write-Error "Checksum mismatch for zip artifact. Expected $expected, got $actual."
   }

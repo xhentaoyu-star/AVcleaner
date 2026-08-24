@@ -6,7 +6,7 @@ def test_capabilities_exposes_v070_local_workflow_flags(client) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["version"] == "0.8.1"
+    assert body["version"] == "0.8.2"
     assert body["capabilities"]["beta_ux_polish"] is True
     assert body["capabilities"]["diagnostics_panel"] is True
     assert body["capabilities"]["first_run_helper"] is True

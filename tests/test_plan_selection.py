@@ -83,6 +83,24 @@ def test_selection_api_rejects_blocking_items(tmp_path: Path, client, auth_heade
     assert response.json()["error_code"] == "blocking_item_selected"
 
 
+def test_selection_api_rejects_requires_review_quarantine_items(tmp_path: Path, client, auth_headers: dict[str, str]) -> None:
+    residue = tmp_path / "midv-192-4k.mp4.xltd"
+    with residue.open("wb") as handle:
+        handle.truncate(2 * 1024 * 1024 * 1024)
+    plan = create_plan(client, auth_headers, tmp_path)
+    item = plan["items"][0]
+
+    assert item["requires_review"] is True
+    response = client.patch(
+        f"/api/plans/{plan['plan_id']}/selection",
+        headers=auth_headers,
+        json={"selected_item_ids": [item["id"]], "mode": "replace"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "blocking_item_selected"
+
+
 def test_select_safe_persists_only_nonblocking_nonreview_non_sidecars(tmp_path: Path, client, auth_headers: dict[str, str]) -> None:
     make_file(tmp_path, "hhd800.com@ABP-123.mp4")
     make_file(tmp_path, "hhd800.com@ABP-123.zh.srt")

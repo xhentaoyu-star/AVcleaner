@@ -1,7 +1,7 @@
 param(
   [Parameter(Mandatory = $true)]
   [string]$AppPath,
-  [string]$ExpectedVersion = "0.8.1",
+  [string]$ExpectedVersion = "0.8.2",
   [switch]$RunTempExecution
 )
 

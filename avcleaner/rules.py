@@ -11,6 +11,7 @@ from .constants import (
     JUNK_EXTENSIONS,
     LARGE_TEMP_JUNK_EXTENSIONS,
     LARGE_TEMP_JUNK_REVIEW_BYTES,
+    OBVIOUS_ADVERTISING_FILENAME_TOKENS,
     RULE_TRACE_IDS,
     SIDECAR_EXTENSIONS,
     TEXT_JUNK_EXTENSIONS,
@@ -506,6 +507,9 @@ def extract_media_code(name: str) -> CodeInfo | None:
 def is_junk_file(item: FileItem, custom_keywords: list[str], trash_zero_byte: bool) -> tuple[bool, str]:
     ext = normalize_extension(item.extension)
     lower_name = item.name.lower()
+    compact_name = re.sub(r"\s+", "", normalize_text(item.name)).casefold()
+    if any(token in compact_name for token in OBVIOUS_ADVERTISING_FILENAME_TOKENS):
+        return True, "obvious_advertising_filename"
     if ext in SIDECAR_EXTENSIONS:
         if any(keyword.lower() in lower_name for keyword in custom_keywords if keyword.strip()):
             return True, "custom_junk_keyword"

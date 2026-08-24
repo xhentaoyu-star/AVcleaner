@@ -47,7 +47,7 @@ def test_sidebar_contains_user_tools_without_visible_debug_toggle() -> None:
 
 def test_centered_card_workbench_css_contract() -> None:
     css = CSS.read_text(encoding="utf-8")
-    sidebar_css = css[css.index("/* v0.8.1 OpenAver-style sidebar shell */") :]
+    sidebar_css = css[css.index("/* OpenAver-style sidebar shell */") :]
 
     assert ".app-layout" in sidebar_css
     assert "grid-template-columns: 244px minmax(0, 1fr)" in sidebar_css
