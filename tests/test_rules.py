@@ -113,6 +113,33 @@ def test_files_inside_advertising_directory_default_to_quarantine(tmp_path: Path
     assert by_path[str(legitimate.relative_to(tmp_path))].action == "keep"
 
 
+def test_advertising_directory_bypasses_extension_filter(tmp_path: Path) -> None:
+    advertising_dir = tmp_path / "IPX-633" / "宣傳文件"
+    advertising_dir.mkdir(parents=True)
+    advertising_files = [
+        advertising_dir / "魔王之家~魔王在線防屏蔽發布器.rar",
+        advertising_dir / "台湾辣妹聊天室XC25.COM.gif",
+        advertising_dir / "avmans最新导航地址.chm",
+    ]
+    for file in advertising_files:
+        file.write_bytes(b"advertising")
+    unrelated_archive = tmp_path / "legitimate-backup.rar"
+    unrelated_archive.write_bytes(b"backup")
+
+    scan = scan_files(ScanRequest(root_path=str(tmp_path), extensions=[".mp4"]))
+    scanned_paths = {item.relative_path for item in scan.files}
+    assert scanned_paths == {str(file.relative_to(tmp_path)) for file in advertising_files}
+    plan = build_plan(PlanRequest(root_path=scan.root_path, files=scan.files))
+    by_path = {item.source_rel_path: item for item in plan.items}
+
+    for file in advertising_files:
+        item = by_path[str(file.relative_to(tmp_path))]
+        assert item.action == "quarantine"
+        assert item.selected_default is True
+        assert item.reason == "advertising_directory"
+    assert str(unrelated_archive.relative_to(tmp_path)) not in by_path
+
+
 def test_obvious_advertising_image_defaults_to_quarantine(tmp_path: Path) -> None:
     advertising_image = tmp_path / "色中色论坛地址宣传图.jpg"
     advertising_image.write_bytes(b"advertising")

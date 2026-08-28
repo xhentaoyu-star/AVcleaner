@@ -4,7 +4,7 @@ import hashlib
 import os
 from pathlib import Path
 
-from .constants import JUNK_EXTENSIONS, SIDECAR_EXTENSIONS, VIDEO_EXTENSIONS
+from .constants import ADVERTISING_DIRECTORY_NAMES, JUNK_EXTENSIONS, SIDECAR_EXTENSIONS, VIDEO_EXTENSIONS
 from .fingerprint import snapshot_for_path
 from .models import ScanItem, ScanRequest, ScanResponse
 from .paths import normalize_extension
@@ -36,6 +36,7 @@ def scan_files(request: ScanRequest) -> ScanResponse:
     allowed_extensions = None
     if request.extensions:
         allowed_extensions = {normalize_extension(ext) for ext in request.extensions if normalize_extension(ext)}
+    advertising_directory_names = {name.casefold() for name in ADVERTISING_DIRECTORY_NAMES}
 
     exclude_dirs = {name.lower() for name in (request.exclude_dirs or [])}
     exclude_dirs.add(QUARANTINE_DIR_NAME)
@@ -67,7 +68,9 @@ def scan_files(request: ScanRequest) -> ScanResponse:
 
     for path in walk_files(root):
         ext = normalize_extension(path.suffix)
-        if allowed_extensions is not None and ext not in allowed_extensions:
+        relative_parts = path.relative_to(root).parts
+        inside_advertising_directory = any(part.casefold() in advertising_directory_names for part in relative_parts[:-1])
+        if allowed_extensions is not None and ext not in allowed_extensions and not inside_advertising_directory:
             continue
         try:
             stat = path.stat()
