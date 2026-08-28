@@ -60,6 +60,7 @@ from .llm_review import (
     generate_llm_suggestions,
     list_plan_llm_suggestions,
     mark_ai_preview_fallback,
+    mark_ai_preview_no_eligible_items,
     reject_llm_suggestion,
 )
 from .planner import (
@@ -551,7 +552,7 @@ async def api_analyze(request: AnalyzeRequest, _token: None = Depends(require_to
                 except AppError as exc:
                     record = mark_ai_preview_fallback(record.plan_id, item_ids, error_code=str(exc.error_code), llm_mode=llm_mode)
             else:
-                record = record.model_copy(update={"preview_mode": "ai", "llm_used": False, "llm_mode": llm_mode})
+                record = mark_ai_preview_no_eligible_items(record.plan_id, llm_mode=llm_mode)
         return AnalyzeResponse(scan=scan, plan=response_from_record(record))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

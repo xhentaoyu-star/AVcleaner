@@ -66,3 +66,25 @@ def test_ai_preview_capability_visible_when_llm_configured(client, auth_headers:
     assert response.status_code == 200
     assert response.json()["preview_modes"] == ["rule", "ai"]
     assert response.json()["capabilities"]["ai_smart_preview"] is True
+
+
+def test_ai_preview_reports_when_no_items_are_eligible_for_ai(
+    tmp_path: Path,
+    client,
+    auth_headers: dict[str, str],
+) -> None:
+    advertising_dir = tmp_path / "宣傳文件"
+    advertising_dir.mkdir()
+    (advertising_dir / "avmans最新导航地址.html").write_text("advertising", encoding="utf-8")
+    configure_llm(client, auth_headers)
+
+    response = client.post(
+        "/api/analyze",
+        headers=auth_headers,
+        json={"root_path": str(tmp_path), "preview_mode": "ai"},
+    )
+
+    assert response.status_code == 200
+    plan = response.json()["plan"]
+    assert plan["llm_used"] is False
+    assert "ai_preview_no_eligible_items" in plan["messages"]

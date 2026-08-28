@@ -81,6 +81,51 @@ def test_obvious_advertising_filenames_default_to_quarantine(tmp_path: Path) -> 
             assert item.reason == "obvious_advertising_filename"
 
 
+def test_files_inside_advertising_directory_default_to_quarantine(tmp_path: Path) -> None:
+    advertising_dir = tmp_path / "IPX-633" / "宣傳文件"
+    advertising_dir.mkdir(parents=True)
+    advertising_files = [
+        advertising_dir / "594.wmv",
+        advertising_dir / "FB-559" / "FB-559.jpg",
+        advertising_dir / "TY-996" / "TY-996.jpg",
+        advertising_dir / "[日本同步]新片合集发布.mht",
+        advertising_dir / "_1024核工厂最新地址.mht",
+        advertising_dir / "avmans最新导航地址.html",
+        advertising_dir / "更多精彩點擊這裡訪問.mht",
+        advertising_dir / "防屏蔽二維碼，請掃描保存到你手機.png",
+    ]
+    for file in advertising_files:
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_bytes(b"advertising")
+    legitimate = tmp_path / "IPX-633" / "IPX-633.mp4"
+    legitimate.write_bytes(b"video")
+
+    scan = scan_files(ScanRequest(root_path=str(tmp_path)))
+    plan = create_plan(PlanRequest(root_path=scan.root_path, files=scan.files))
+    by_path = {item.source_rel_path: item for item in plan.items}
+
+    for file in advertising_files:
+        item = by_path[str(file.relative_to(tmp_path))]
+        assert item.action == "quarantine"
+        assert item.selected_default is True
+        assert item.requires_review is False
+        assert item.reason == "advertising_directory"
+    assert by_path[str(legitimate.relative_to(tmp_path))].action == "keep"
+
+
+def test_obvious_advertising_image_defaults_to_quarantine(tmp_path: Path) -> None:
+    advertising_image = tmp_path / "色中色论坛地址宣传图.jpg"
+    advertising_image.write_bytes(b"advertising")
+
+    scan = scan_files(ScanRequest(root_path=str(tmp_path)))
+    plan = create_plan(PlanRequest(root_path=scan.root_path, files=scan.files))
+    item = next(current for current in plan.items if current.original_name == advertising_image.name)
+
+    assert item.action == "quarantine"
+    assert item.selected_default is True
+    assert item.reason == "obvious_advertising_filename"
+
+
 def test_large_temp_download_residue_requires_manual_selection(tmp_path: Path) -> None:
     residue = tmp_path / "midv-192-4k.mp4.xltd"
     with residue.open("wb") as handle:

@@ -585,6 +585,20 @@ def mark_ai_preview_fallback(plan_id: str, item_ids: Iterable[str], *, error_cod
     )
 
 
+def mark_ai_preview_no_eligible_items(plan_id: str, *, llm_mode: str = "") -> object:
+    record = get_plan(plan_id)
+    return save_plan(
+        record.model_copy(
+            update={
+                "preview_mode": "ai",
+                "llm_used": False,
+                "llm_mode": llm_mode,
+                "messages": list(dict.fromkeys([*record.messages, "ai_preview_no_eligible_items"])),
+            }
+        )
+    )
+
+
 def accept_llm_suggestion(plan_id: str, suggestion_id: str, request: LLMSuggestionApplyRequest) -> LLMSuggestionApplyResponse:
     record = get_plan(plan_id)
     suggestion = get_llm_suggestion(suggestion_id)

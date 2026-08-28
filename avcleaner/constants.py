@@ -9,7 +9,19 @@ OBVIOUS_ADVERTISING_FILENAME_TOKENS = {
     "18+遊戲大全",
     "聚合全网h直播",
     "聚合全網h直播",
+    "最新地址",
+    "最新导航地址",
+    "最新導航地址",
+    "新片合集发布",
+    "新片合集發佈",
+    "更多精彩点击这里访问",
+    "更多精彩點擊這裡訪問",
+    "防屏蔽二维码",
+    "防屏蔽二維碼",
+    "论坛地址宣传图",
+    "論壇地址宣傳圖",
 }
+ADVERTISING_DIRECTORY_NAMES = {"宣传文件", "宣傳文件"}
 LARGE_TEMP_JUNK_EXTENSIONS = {".parts", ".qkdownloading", ".xltd", ".aria2"}
 LARGE_TEMP_JUNK_REVIEW_BYTES = 1024 * 1024 * 1024
 

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .constants import (
+    ADVERTISING_DIRECTORY_NAMES,
     AD_DOMAIN_PATTERNS,
     JUNK_EXTENSIONS,
     LARGE_TEMP_JUNK_EXTENSIONS,
@@ -508,6 +509,12 @@ def is_junk_file(item: FileItem, custom_keywords: list[str], trash_zero_byte: bo
     ext = normalize_extension(item.extension)
     lower_name = item.name.lower()
     compact_name = re.sub(r"\s+", "", normalize_text(item.name)).casefold()
+    parent_names = {
+        normalize_text(part).strip().casefold()
+        for part in Path(item.path).parent.parts
+    }
+    if parent_names & {name.casefold() for name in ADVERTISING_DIRECTORY_NAMES}:
+        return True, "advertising_directory"
     if any(token in compact_name for token in OBVIOUS_ADVERTISING_FILENAME_TOKENS):
         return True, "obvious_advertising_filename"
     if ext in SIDECAR_EXTENSIONS:

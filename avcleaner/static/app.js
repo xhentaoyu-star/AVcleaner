@@ -660,6 +660,11 @@ const CODE_EXPLANATIONS = {
     explanation: "这是下载包里常见的广告说明、HTML 页面或推广文本。",
     suggested_action: "通常可以隔离。",
   },
+  "advertising_directory": {
+    title: "广告目录",
+    explanation: "文件位于明确的宣传文件目录中，整包按广告附件处理。",
+    suggested_action: "默认移入隔离区；如确认是正片附件，可取消选择。",
+  },
   "obvious_advertising_filename": {
     title: "明确广告文件",
     explanation: "文件名命中内置的明确广告词，例如“18+游戏大全”或“聚合全网 H 直播”。",
@@ -2667,6 +2672,9 @@ async function analyze() {
     if ((state.plan?.messages || []).includes("ai_preview_failed_fallback")) {
       toast("AI 建议失败，已回退到规则预览。", "warning");
       setStatus("AI 建议失败，已回退到规则预览。", "warning");
+    } else if ((state.plan?.messages || []).includes("ai_preview_no_eligible_items")) {
+      toast("规则已完成判断；本批没有需要 AI 改名的项目，AI 未调用。", "warning");
+      setStatus("本批 AI 未调用，已显示规则结果。", "warning");
     } else {
       toast(mode === "ai" ? "AI 智能预览已生成" : "规则预览已生成", "success");
       setStatus(mode === "ai" ? "AI 智能预览已生成" : "规则预览已生成", "success");
