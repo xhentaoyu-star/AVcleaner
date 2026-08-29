@@ -490,6 +490,11 @@ const CODE_EXPLANATIONS = {
     explanation: "LLM 建议会和现有文件或计划内目标冲突。",
     suggested_action: "不要接受这条建议，或手动改名。",
   },
+  "llm_semantic_mismatch": {
+    title: "LLM 改动了关键编号",
+    explanation: "LLM 建议丢失或改动了已识别的番号、分段号、版本或字幕语言。",
+    suggested_action: "AVcleaner 已拒绝该建议并保留规则结果。",
+  },
   "llm_payload_privacy_violation": {
     title: "LLM 载荷隐私检查失败",
     explanation: "准备发送给 LLM 的内容触发了隐私边界。",

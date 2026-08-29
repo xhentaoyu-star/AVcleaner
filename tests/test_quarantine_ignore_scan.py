@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from conftest import make_file
 
 from avcleaner.models import ScanRequest
-from avcleaner.quarantine import choose_quarantine_root
+from avcleaner.quarantine import QuarantinePathError, choose_quarantine_root
 from avcleaner.paths import quarantine_root
 from avcleaner.scanner import QUARANTINE_DIR_NAME, scan_files
 
@@ -32,10 +34,22 @@ def test_quarantine_root_defaults_outside_scan_root(tmp_path: Path) -> None:
 
 
 def test_quarantine_root_uses_custom_directory(tmp_path: Path) -> None:
-    source = make_file(tmp_path / "sub", "ad.url", b"junk")
+    scan_root = tmp_path / "source"
+    source = make_file(scan_root / "sub", "ad.url", b"junk")
     custom = tmp_path / "custom-quarantine"
 
-    root = choose_quarantine_root(tmp_path, source, "run_1", str(custom))
+    root = choose_quarantine_root(scan_root, source, "run_1", str(custom))
 
     assert root == custom / "run_1"
     assert root.exists()
+
+
+def test_quarantine_root_rejects_custom_directory_inside_scan_root(tmp_path: Path) -> None:
+    scan_root = tmp_path / "source"
+    source = make_file(scan_root / "sub", "ad.url", b"junk")
+    custom = scan_root / "custom-quarantine"
+
+    with pytest.raises(QuarantinePathError, match="quarantine_inside_scan_root"):
+        choose_quarantine_root(scan_root, source, "run_1", str(custom))
+
+    assert not custom.exists()

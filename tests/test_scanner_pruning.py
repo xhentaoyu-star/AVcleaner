@@ -25,3 +25,23 @@ def test_recursive_scan_does_not_enter_excluded_directories(tmp_path: Path, monk
 
     assert [item.name for item in result.files] == ["visible.mp4"]
     assert str(excluded) in result.skipped_dirs
+
+
+def test_recursive_scan_reports_unreadable_directories(tmp_path: Path, monkeypatch) -> None:
+    blocked = tmp_path / "blocked"
+    blocked.mkdir()
+    (blocked / "hidden.mp4").write_bytes(b"video")
+    (tmp_path / "visible.mp4").write_bytes(b"video")
+    original_scandir = os.scandir
+
+    def failing_scandir(path):
+        if Path(path).resolve() == blocked.resolve():
+            raise PermissionError("simulated unreadable directory")
+        return original_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", failing_scandir)
+
+    result = scan_files(ScanRequest(root_path=str(tmp_path)))
+
+    assert [item.name for item in result.files] == ["visible.mp4"]
+    assert str(blocked) in result.skipped_dirs

@@ -4,6 +4,7 @@ import os
 import re
 from collections import Counter
 from pathlib import Path
+from typing import Mapping
 
 from .constants import WINDOWS_RESERVED_NAMES
 from .enums import IssueCode, IssueSeverity, Operation
@@ -52,7 +53,27 @@ def validate_filename(target_name: str, original_extension: str, long_path_mode:
     return issues
 
 
-def find_case_insensitive_existing(path: Path) -> Path | None:
+def _directory_key(path: Path) -> str:
+    return os.path.normcase(str(path.resolve(strict=False)))
+
+
+def _case_insensitive_directory_indexes(paths: list[Path]) -> dict[str, dict[str, Path]]:
+    indexes: dict[str, dict[str, Path]] = {}
+    for path in paths:
+        parent = path.parent
+        key = _directory_key(parent)
+        if key in indexes:
+            continue
+        try:
+            indexes[key] = {child.name.casefold(): child for child in parent.iterdir()} if parent.exists() else {}
+        except OSError:
+            indexes[key] = {}
+    return indexes
+
+
+def find_case_insensitive_existing(path: Path, directory_index: Mapping[str, Path] | None = None) -> Path | None:
+    if directory_index is not None:
+        return directory_index.get(path.name.casefold())
     parent = path.parent
     if not parent.exists():
         return None
@@ -76,7 +97,12 @@ def snapshot_changed(path: Path, snapshot: FileSnapshot | None) -> bool:
     return current.size != snapshot.size or current.modified_ns != snapshot.modified_ns or current.fingerprint != snapshot.fingerprint
 
 
-def validate_item_paths(root: Path, item: PlanItem, long_path_mode: str = "conservative") -> list[ValidationIssue]:
+def validate_item_paths(
+    root: Path,
+    item: PlanItem,
+    long_path_mode: str = "conservative",
+    existing_by_parent: Mapping[str, Mapping[str, Path]] | None = None,
+) -> list[ValidationIssue]:
     issues = validate_filename(item.target_name or item.suggested_name, item.extension, long_path_mode)
     source = Path(item.source_path).resolve(strict=False)
     target = Path(item.target_path).resolve(strict=False)
@@ -95,7 +121,8 @@ def validate_item_paths(root: Path, item: PlanItem, long_path_mode: str = "conse
     if raw_source.lower() == raw_target.lower() and raw_source != raw_target:
         issues.append(issue(IssueCode.CASE_ONLY_RENAME, severity=WARNING, target=str(target)))
 
-    existing = find_case_insensitive_existing(target)
+    directory_index = existing_by_parent.get(_directory_key(target.parent), {}) if existing_by_parent is not None else None
+    existing = find_case_insensitive_existing(target, directory_index)
     if existing and str(existing).lower() != str(source).lower():
         if existing.name == target.name:
             issues.append(issue(IssueCode.TARGET_EXISTS, target=str(target)))
@@ -131,11 +158,17 @@ def validate_conflicts(items: list[PlanItem]) -> dict[str, list[ValidationIssue]
 def validate_plan_items(root_path: str | Path, items: list[PlanItem], long_path_mode: str = "conservative") -> list[PlanItem]:
     root = Path(root_path).resolve(strict=False)
     conflict_issues = validate_conflicts(items)
+    rename_targets = [
+        Path(item.target_path).resolve(strict=False)
+        for item in items
+        if item.action in {Operation.RENAME, "rename"}
+    ]
+    existing_by_parent = _case_insensitive_directory_indexes(rename_targets)
     validated: list[PlanItem] = []
     for item in items:
         issues: list[ValidationIssue] = []
         if item.action in {Operation.RENAME, "rename"}:
-            issues.extend(validate_item_paths(root, item, long_path_mode))
+            issues.extend(validate_item_paths(root, item, long_path_mode, existing_by_parent))
         elif item.action in {Operation.QUARANTINE, "quarantine"}:
             source = Path(item.source_path).resolve(strict=False)
             if not is_relative_to(source, root):

@@ -108,3 +108,22 @@ def test_validate_near_long_path_warns(tmp_path: Path) -> None:
     validated = validate_plan_items(tmp_path, [item])[0]
 
     assert any(issue.code in {IssueCode.PATH_NEAR_LIMIT, IssueCode.PATH_TOO_LONG} for issue in validated.issues)
+
+
+def test_validate_plan_enumerates_each_target_directory_once(tmp_path: Path, monkeypatch) -> None:
+    first = _plan_item(tmp_path, "old-a.mp4", "new-a.mp4")
+    second = _plan_item(tmp_path, "old-b.mp4", "new-b.mp4")
+    real_iterdir = Path.iterdir
+    enumerations = 0
+
+    def counted_iterdir(path: Path):
+        nonlocal enumerations
+        if path.resolve(strict=False) == tmp_path.resolve(strict=False):
+            enumerations += 1
+        return real_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", counted_iterdir)
+
+    validate_plan_items(tmp_path, [first, second])
+
+    assert enumerations == 1

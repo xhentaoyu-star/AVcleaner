@@ -22,6 +22,13 @@ class QuarantineRecoveryRequired(OSError):
         self.target_path = target_path
 
 
+class QuarantinePathError(OSError):
+    code = "quarantine_inside_scan_root"
+
+    def __init__(self) -> None:
+        super().__init__(self.code)
+
+
 @dataclass(frozen=True)
 class QuarantineBaseStatus:
     configured_dir: str
@@ -72,7 +79,18 @@ def resolve_quarantine_base(custom_dir: str = "") -> QuarantineBaseStatus:
 
 
 def choose_quarantine_root(scan_root: Path, source_path: Path, run_id: str, custom_dir: str = "") -> Path:
-    preferred = resolve_quarantine_base(custom_dir).effective_dir / run_id
+    resolved_scan_root = scan_root.resolve(strict=False)
+    configured_dir = str(custom_dir or "").strip()
+    if configured_dir:
+        configured_base = _configured_quarantine_base(configured_dir).resolve(strict=False)
+        if configured_base == resolved_scan_root or configured_base.is_relative_to(resolved_scan_root):
+            raise QuarantinePathError()
+
+    effective_base = resolve_quarantine_base(custom_dir).effective_dir.resolve(strict=False)
+    if effective_base == resolved_scan_root or effective_base.is_relative_to(resolved_scan_root):
+        raise QuarantinePathError()
+
+    preferred = effective_base / run_id
     if _is_writable_dir(preferred):
         return preferred
 

@@ -50,12 +50,14 @@ def scan_files(request: ScanRequest) -> ScanResponse:
             with os.scandir(directory) as iterator:
                 entries = sorted(iterator, key=lambda entry: entry.name.lower())
         except OSError:
+            skipped_dirs.append(str(directory))
             return
         for entry in entries:
             path = Path(entry.path)
             try:
                 is_dir = entry.is_dir(follow_symlinks=False)
             except OSError:
+                skipped_dirs.append(str(path.parent))
                 continue
             if is_dir:
                 if entry.name.lower() in exclude_dirs or (not request.include_hidden and entry.name.startswith(".")):
@@ -79,6 +81,7 @@ def scan_files(request: ScanRequest) -> ScanResponse:
             stat = path.stat()
             snapshot = snapshot_for_path(path)
         except OSError:
+            skipped_dirs.append(str(path.parent))
             continue
         files.append(
             ScanItem(

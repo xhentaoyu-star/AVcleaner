@@ -127,3 +127,67 @@ def test_invalid_suggestion_cannot_be_accepted(tmp_path: Path, client, auth_head
 
     assert response.status_code == 400
     assert response.json()["error_code"] == "blocking_suggestion"
+
+
+def test_llm_cannot_drop_rule_detected_part_suffix(
+    tmp_path: Path,
+    client,
+    auth_headers,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    make_file(tmp_path, "hhd800.com@ABP-123-00.mp4")
+    configure_mock_llm(client, auth_headers)
+    plan = create_plan(client, auth_headers, tmp_path)
+    item = plan["items"][0]
+    assert item["part_suffix"] == "-00"
+
+    async def fake_suggest(_request, _settings):
+        return LLMBatchResponse(
+            suggestions=[LLMSuggestion(item_id=item["id"], suggested_name="ABP-123.mp4", media_code="ABP-123", confidence=0.9)]
+        )
+
+    monkeypatch.setattr("avcleaner.llm.suggest_with_llm", fake_suggest)
+    suggestion = client.post(
+        f"/api/plans/{plan['plan_id']}/llm/suggest",
+        headers=auth_headers,
+        json={"item_ids": [item["id"]], "include_neighbors": True, "use_cache": False},
+    ).json()["suggestions"][0]
+
+    assert suggestion["status"] == "invalid"
+    assert "llm_semantic_mismatch" in [issue["code"] for issue in suggestion["validation_issues"]]
+
+
+def test_llm_record_uses_backend_parsed_semantics_instead_of_claimed_fields(
+    tmp_path: Path,
+    client,
+    auth_headers,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    make_file(tmp_path, "movie_without_code.mp4")
+    configure_mock_llm(client, auth_headers)
+    plan = create_plan(client, auth_headers, tmp_path)
+    item = plan["items"][0]
+
+    async def fake_suggest(_request, _settings):
+        return LLMBatchResponse(
+            suggestions=[
+                LLMSuggestion(
+                    item_id=item["id"],
+                    suggested_name="ABP-123-00.mp4",
+                    media_code="WRONG-999",
+                    part_suffix="-77",
+                    confidence=0.9,
+                )
+            ]
+        )
+
+    monkeypatch.setattr("avcleaner.llm.suggest_with_llm", fake_suggest)
+    suggestion = client.post(
+        f"/api/plans/{plan['plan_id']}/llm/suggest",
+        headers=auth_headers,
+        json={"item_ids": [item["id"]], "include_neighbors": True, "use_cache": False},
+    ).json()["suggestions"][0]
+
+    assert suggestion["status"] == "valid"
+    assert suggestion["media_code"] == "ABP-123"
+    assert suggestion["part_suffix"] == "-00"

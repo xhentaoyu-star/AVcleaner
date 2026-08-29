@@ -11,7 +11,7 @@ from .errors import AppError
 from .execution_progress import complete_item, finish_progress, start_item, start_progress, update_file_progress, update_progress
 from .models import ExecuteRequest, ExecuteResponse, ExecutionItem, ExecutionRun, OperationRecord, PlanExecuteRequest
 from .planner import validate_stored_plan
-from .quarantine import QuarantineRecoveryRequired, quarantine_item
+from .quarantine import QuarantinePathError, QuarantineRecoveryRequired, quarantine_item
 from .recovery import ROLLBACK_TARGET_EXISTS, build_rollback_preview, is_rollbackable_item
 from .repository import (
     create_run,
@@ -38,6 +38,8 @@ def _is_file_in_use_error(exc: BaseException) -> bool:
 
 
 def _operation_failure_code(exc: BaseException) -> str:
+    if isinstance(exc, QuarantinePathError):
+        return exc.code
     if _is_file_in_use_error(exc):
         return str(IssueCode.FILE_IN_USE)
     if isinstance(exc, FileNotFoundError):

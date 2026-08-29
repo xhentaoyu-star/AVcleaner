@@ -76,6 +76,7 @@ class IssueCode(StrEnum):
     LLM_RESERVED_NAME = "llm_reserved_name"
     LLM_INVALID_WINDOWS_NAME = "llm_invalid_windows_name"
     LLM_TARGET_CONFLICT = "llm_target_conflict"
+    LLM_SEMANTIC_MISMATCH = "llm_semantic_mismatch"
     LLM_PAYLOAD_PRIVACY_VIOLATION = "llm_payload_privacy_violation"
     LLM_CACHE_ERROR = "llm_cache_error"
     LEGACY_LLM_SUGGEST_DISABLED = "legacy_llm_suggest_disabled"

@@ -82,6 +82,26 @@ def test_quarantine_uses_configured_directory_and_manifest(tmp_path: Path) -> No
     assert row["quarantine_abs_path"] == run_item.target_path
 
 
+def test_quarantine_inside_scan_root_is_blocked_without_moving_source(tmp_path: Path) -> None:
+    source_root = tmp_path / "source"
+    quarantine_root = source_root / "custom-quarantine"
+    put_settings(get_settings().model_copy(update={"quarantine_dir": str(quarantine_root)}))
+    source = make_file(source_root, "ad.url", b"[InternetShortcut]")
+    scan = create_scan(ScanRequest(root_path=str(source_root)), scan_files(ScanRequest(root_path=str(source_root))))
+    plan = create_plan(PlanRequest(scan_id=scan.scan_id))
+
+    response = execute_plan_by_id(
+        plan.plan_id,
+        PlanExecuteRequest(selected_item_ids=[plan.items[0].id], confirm=True, plan_hash=plan.plan_hash),
+    )
+
+    run_item = response.items[0]
+    assert run_item.state == "failed"
+    assert run_item.issue_code == "quarantine_inside_scan_root"
+    assert source.read_bytes() == b"[InternetShortcut]"
+    assert not quarantine_root.exists()
+
+
 def test_quarantine_reports_move_progress(tmp_path: Path) -> None:
     source_root = tmp_path / "source"
     make_file(source_root, "ad.url", b"[InternetShortcut]")

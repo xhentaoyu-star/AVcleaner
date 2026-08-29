@@ -40,8 +40,9 @@ from .repository import (
     save_plan,
     update_llm_suggestion_status,
 )
+from .rules import suggest_name_with_trace
 from .settings_store import effective_llm_api_key, get_settings
-from .validators import validate_filename, validate_plan_items
+from .validators import issue, validate_filename, validate_plan_items
 
 SCHEMA_VERSION = 1
 PROMPT_VERSION = "plan-review-v1"
@@ -74,6 +75,7 @@ SAFETY_ERROR_CODES = {
     str(IssueCode.LLM_RESERVED_NAME),
     str(IssueCode.LLM_INVALID_WINDOWS_NAME),
     str(IssueCode.LLM_TARGET_CONFLICT),
+    str(IssueCode.LLM_SEMANTIC_MISMATCH),
     str(IssueCode.LLM_PAYLOAD_PRIVACY_VIOLATION),
     str(IssueCode.BLOCKING_SUGGESTION),
 }
@@ -182,6 +184,32 @@ def _issues_for_suggestion(record, item: PlanItem, suggested_name: str) -> list[
     issues = validate_filename(suggested_name, item.extension)
     if any(issue.blocking for issue in issues):
         return issues
+    parsed = suggest_name_with_trace(suggested_name)
+    semantic_mismatch = parsed.media_code is None
+    if item.media_code:
+        expected_code = suggest_name_with_trace(f"{item.media_code}{item.extension}").media_code or item.media_code
+        semantic_mismatch = semantic_mismatch or (
+            parsed.media_code != expected_code
+            or parsed.part_suffix != item.part_suffix
+            or parsed.variant != item.variant
+            or parsed.language_suffix != item.language_suffix
+            or parsed.requires_review
+        )
+    if semantic_mismatch:
+        issues.append(
+            issue(
+                IssueCode.LLM_SEMANTIC_MISMATCH,
+                expected_media_code=item.media_code or None,
+                expected_part_suffix=item.part_suffix or None,
+                expected_variant=item.variant or None,
+                expected_language_suffix=item.language_suffix or None,
+                actual_media_code=parsed.media_code,
+                actual_part_suffix=parsed.part_suffix or None,
+                actual_variant=parsed.variant or None,
+                actual_language_suffix=parsed.language_suffix or None,
+            )
+        )
+        return issues
     source = Path(item.source_path)
     try:
         target = source.with_name(suggested_name)
@@ -214,6 +242,8 @@ def _issues_for_suggestion(record, item: PlanItem, suggested_name: str) -> list[
 
 def _llm_issue_code_from_validation(issues: list[ValidationIssue]) -> str:
     codes = {str(issue.code) for issue in issues if issue.blocking}
+    if str(IssueCode.LLM_SEMANTIC_MISMATCH) in codes:
+        return str(IssueCode.LLM_SEMANTIC_MISMATCH)
     if str(IssueCode.PATH_SEPARATOR_IN_TARGET) in codes or str(IssueCode.ALTERNATE_DATA_STREAM) in codes:
         return str(IssueCode.LLM_PATH_LIKE_SUGGESTION)
     if str(IssueCode.EXTENSION_CHANGED) in codes:
@@ -250,6 +280,7 @@ def ai_preview_item_ids(record) -> list[str]:
 
 def _record_from_suggestion(record, item: PlanItem, settings, suggestion: LLMSuggestion, payload_hash: str) -> LLMSuggestionRecord:
     validation_issues = _issues_for_suggestion(record, item, suggestion.suggested_name)
+    parsed = suggest_name_with_trace(suggestion.suggested_name)
     status = "invalid" if any(issue.blocking for issue in validation_issues) else "valid"
     warnings = list(suggestion.warnings)
     if status == "invalid":
@@ -265,10 +296,10 @@ def _record_from_suggestion(record, item: PlanItem, settings, suggestion: LLMSug
         model=settings.model,
         schema_version=SCHEMA_VERSION,
         suggested_name=suggestion.suggested_name,
-        media_code=suggestion.media_code or None,
-        part_suffix=suggestion.part_suffix,
-        variant=suggestion.variant,
-        language_suffix=suggestion.language_suffix,
+        media_code=parsed.media_code,
+        part_suffix=parsed.part_suffix,
+        variant=parsed.variant,
+        language_suffix=parsed.language_suffix,
         removed_tokens=suggestion.removed_tokens,
         confidence=suggestion.confidence,
         reason=suggestion.reason,
@@ -514,6 +545,10 @@ def apply_llm_suggestions_to_preview(
                 "suggested_name": suggestion.suggested_name,
                 "target_path": target_path,
                 "target_rel_path": target_rel,
+                "media_code": suggestion.media_code or "",
+                "part_suffix": suggestion.part_suffix,
+                "variant": suggestion.variant,
+                "language_suffix": suggestion.language_suffix,
                 "source": SuggestionSource.LLM,
                 "suggestion_source": SuggestionSource.LLM,
                 "llm_state": "applied_to_preview",
@@ -631,6 +666,10 @@ def accept_llm_suggestion(plan_id: str, suggestion_id: str, request: LLMSuggesti
                     "suggested_name": suggestion.suggested_name,
                     "target_path": target_path,
                     "target_rel_path": target_rel,
+                    "media_code": suggestion.media_code or "",
+                    "part_suffix": suggestion.part_suffix,
+                    "variant": suggestion.variant,
+                    "language_suffix": suggestion.language_suffix,
                     "source": SuggestionSource.LLM,
                     "suggestion_source": SuggestionSource.LLM,
                     "action": Operation.RENAME,
