@@ -25,7 +25,7 @@ from .repository import (
     upsert_run_item,
 )
 from .settings_store import get_settings
-from .validators import has_blocking_issues
+from .validators import has_blocking_issues, validate_plan_items
 
 
 FILE_IN_USE_WINERRORS = {32, 33}
@@ -141,10 +141,23 @@ def execute_plan_by_id(plan_id: str, request: PlanExecuteRequest, *, run_id: str
         )
         run_item = upsert_run_item(run_item)
         try:
-            if item.action == Operation.RENAME:
-                run_item = _execute_rename_item(run_item, item)
-            elif item.action == Operation.QUARANTINE:
-                run_item = _execute_quarantine_item(run_item, Path(validated.root_path), item, settings.quarantine_dir)
+            current_item = validate_plan_items(validated.root_path, [item], settings.filesystem.long_path_mode)[0]
+            blocking_issue = next((problem for problem in current_item.issues if problem.blocking), None)
+            if blocking_issue:
+                error_code = str(blocking_issue.code)
+                run_item = upsert_run_item(
+                    run_item.model_copy(
+                        update={
+                            "state": RunItemState.FAILED,
+                            "message": error_code,
+                            "issue_code": error_code,
+                        }
+                    )
+                )
+            elif current_item.action == Operation.RENAME:
+                run_item = _execute_rename_item(run_item, current_item)
+            elif current_item.action == Operation.QUARANTINE:
+                run_item = _execute_quarantine_item(run_item, Path(validated.root_path), current_item, settings.quarantine_dir)
             else:
                 run_item = upsert_run_item(run_item.model_copy(update={"state": RunItemState.SKIPPED, "message": "not_executable"}))
         except Exception as exc:
@@ -306,17 +319,31 @@ def rollback_run(run_id: str, item_ids: list[str] | None = None) -> ExecuteRespo
         else:
             source = Path(rollback_item.source_path).resolve(strict=False)
             target = Path(source_item.source_path).resolve(strict=False)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(source), str(target))
-            rollback_item = rollback_item.model_copy(
-                update={
-                    "state": RunItemState.ROLLED_BACK,
-                    "message": "restored",
-                    "rollback_status": str(RunItemState.ROLLED_BACK),
-                    "rollback_error_code": "",
-                }
-            )
-            update_run_item_rollback_status(source_item.id, str(RunItemState.ROLLED_BACK), "")
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(source), str(target))
+            except Exception as exc:
+                error_code = _operation_failure_code(exc)
+                rollback_item = rollback_item.model_copy(
+                    update={
+                        "state": RunItemState.ROLLBACK_FAILED,
+                        "message": error_code,
+                        "issue_code": error_code,
+                        "rollback_status": str(RunItemState.ROLLBACK_FAILED),
+                        "rollback_error_code": error_code,
+                    }
+                )
+                update_run_item_rollback_status(source_item.id, str(RunItemState.ROLLBACK_FAILED), error_code)
+            else:
+                rollback_item = rollback_item.model_copy(
+                    update={
+                        "state": RunItemState.ROLLED_BACK,
+                        "message": "restored",
+                        "rollback_status": str(RunItemState.ROLLED_BACK),
+                        "rollback_error_code": "",
+                    }
+                )
+                update_run_item_rollback_status(source_item.id, str(RunItemState.ROLLED_BACK), "")
         completed.append(upsert_run_item(rollback_item))
 
     summary = summarize_item_states(completed)

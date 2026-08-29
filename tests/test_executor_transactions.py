@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -186,6 +187,37 @@ def test_case_only_rename_persists_temp_path_for_later_rollback(tmp_path: Path, 
     assert not Path(run_item.temp_path).exists()
 
 
+def test_rollback_continues_after_one_item_move_fails(tmp_path: Path, monkeypatch) -> None:
+    make_file(tmp_path, "hhd800.com@ABP-123.mp4", b"first")
+    make_file(tmp_path, "hhd800.com@IPX-456.mp4", b"second")
+    plan = plan_for(tmp_path)
+    run = execute_plan_by_id(
+        plan.plan_id,
+        PlanExecuteRequest(
+            selected_item_ids=[item.id for item in plan.items],
+            confirm=True,
+            plan_hash=plan.plan_hash,
+        ),
+    )
+    real_move = shutil.move
+    move_calls = 0
+
+    def fail_first_move(source: str, target: str):
+        nonlocal move_calls
+        move_calls += 1
+        if move_calls == 1:
+            raise OSError("simulated rollback move failure")
+        return real_move(source, target)
+
+    monkeypatch.setattr("avcleaner.executor.shutil.move", fail_first_move)
+
+    rollback = rollback_run(run.run_id)
+
+    assert rollback.state == RunState.ROLLBACK_PARTIAL
+    assert {item.state for item in rollback.items} == {RunItemState.ROLLED_BACK, RunItemState.ROLLBACK_FAILED}
+    assert move_calls == 2
+
+
 def test_plan_hash_mismatch_blocks_execution(tmp_path: Path) -> None:
     make_file(tmp_path, "hhd800.com@ABP-123.mp4")
     plan = plan_for(tmp_path)
@@ -212,6 +244,85 @@ def test_source_changed_before_execute_blocks_by_hash(tmp_path: Path) -> None:
         assert "plan_hash_mismatch" in str(exc)
     else:
         raise AssertionError("changed source should stale the plan")
+
+
+def test_each_item_is_revalidated_immediately_before_execution(tmp_path: Path, monkeypatch) -> None:
+    first_source = make_file(tmp_path, "hhd800.com@ABP-123.mp4", b"first")
+    second_source = make_file(tmp_path, "hhd800.com@IPX-456.mp4", b"second")
+    plan = plan_for(tmp_path)
+    by_name = {item.original_name: item for item in plan.items}
+    first_item = by_name[first_source.name]
+    second_item = by_name[second_source.name]
+    original_rename = Path.rename
+
+    def rename_then_change_next(path: Path, target: Path):
+        result = original_rename(path, target)
+        if path == first_source:
+            second_source.write_bytes(b"changed after batch validation")
+        return result
+
+    monkeypatch.setattr(Path, "rename", rename_then_change_next)
+
+    response = execute_plan_by_id(
+        plan.plan_id,
+        PlanExecuteRequest(
+            selected_item_ids=[first_item.id, second_item.id],
+            confirm=True,
+            plan_hash=plan.plan_hash,
+        ),
+    )
+    run_items = {item.plan_item_id: item for item in response.items}
+
+    assert run_items[first_item.id].state == RunItemState.RENAMED
+    assert run_items[second_item.id].state == RunItemState.FAILED
+    assert run_items[second_item.id].issue_code == IssueCode.SOURCE_CHANGED
+    assert second_source.read_bytes() == b"changed after batch validation"
+    assert not (tmp_path / "IPX-456.mp4").exists()
+
+
+def test_quarantine_rejects_symlink_swapped_outside_scan_root(tmp_path: Path, monkeypatch) -> None:
+    probe_target = tmp_path / "probe-target"
+    probe_target.write_text("probe", encoding="utf-8")
+    probe_link = tmp_path / "probe-link"
+    try:
+        probe_link.symlink_to(probe_target)
+    except OSError:
+        pytest.skip("symbolic links are unavailable on this Windows host")
+    probe_link.unlink()
+
+    first_source = make_file(tmp_path, "hhd800.com@ABP-123.mp4", b"first")
+    quarantine_source = make_file(tmp_path, "z-ad.url", b"shortcut")
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.txt"
+    outside.write_bytes(b"outside data")
+    plan = plan_for(tmp_path)
+    by_name = {item.original_name: item for item in plan.items}
+    first_item = by_name[first_source.name]
+    quarantine_item = by_name[quarantine_source.name]
+    original_rename = Path.rename
+
+    def rename_then_swap_link(path: Path, target: Path):
+        result = original_rename(path, target)
+        if path == first_source:
+            quarantine_source.unlink()
+            quarantine_source.symlink_to(outside)
+        return result
+
+    monkeypatch.setattr(Path, "rename", rename_then_swap_link)
+
+    response = execute_plan_by_id(
+        plan.plan_id,
+        PlanExecuteRequest(
+            selected_item_ids=[first_item.id, quarantine_item.id],
+            confirm=True,
+            plan_hash=plan.plan_hash,
+        ),
+    )
+    run_items = {item.plan_item_id: item for item in response.items}
+
+    assert run_items[quarantine_item.id].state == RunItemState.FAILED
+    assert run_items[quarantine_item.id].issue_code == IssueCode.PATH_ESCAPE
+    assert outside.read_bytes() == b"outside data"
+    outside.unlink()
 
 
 def test_startup_recovery_marks_running_runs_interrupted() -> None:
