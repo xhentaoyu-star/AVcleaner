@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 from starlette.requests import Request
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import __version__
 from .constants import JUNK_EXTENSIONS, SIDECAR_EXTENSIONS, TEXT_JUNK_EXTENSIONS, VIDEO_EXTENSIONS
@@ -99,6 +100,60 @@ from .validators import validate_filename
 PACKAGE_DIR = Path(__file__).parent
 API_TOKEN = stdlib_secrets.token_urlsafe(32)
 EXECUTION_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="avcleaner-execute")
+ALLOWED_HTTP_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def _is_allowed_host_header(value: str) -> bool:
+    raw = value.strip().casefold()
+    if not raw:
+        return False
+
+    port: str | None = None
+    if raw.startswith("["):
+        closing_bracket = raw.find("]")
+        if closing_bracket < 0:
+            return False
+        host = raw[1:closing_bracket]
+        remainder = raw[closing_bracket + 1 :]
+        if remainder:
+            if not remainder.startswith(":"):
+                return False
+            port = remainder[1:]
+    elif ":" in raw:
+        host, port = raw.rsplit(":", 1)
+        if ":" in host:
+            return False
+    else:
+        host = raw
+
+    if port is not None and (
+        not port
+        or len(port) > 5
+        or not port.isascii()
+        or not port.isdecimal()
+        or not 1 <= int(port) <= 65535
+    ):
+        return False
+    return host in ALLOWED_HTTP_HOSTS
+
+
+class LoopbackHostMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] in {"http", "websocket"}:
+            host_header = next(
+                (value.decode("latin-1") for key, value in scope.get("headers", []) if key.lower() == b"host"),
+                "",
+            )
+            if not _is_allowed_host_header(host_header):
+                if scope["type"] == "websocket":
+                    await send({"type": "websocket.close", "code": 1008})
+                else:
+                    await Response("Invalid host header", status_code=400, media_type="text/plain")(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
 
 @asynccontextmanager
@@ -108,6 +163,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="AVcleaner", version=__version__, lifespan=lifespan)
+app.add_middleware(LoopbackHostMiddleware)
 app.mount("/static", StaticFiles(directory=PACKAGE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=PACKAGE_DIR / "templates")
 
