@@ -11,7 +11,7 @@ from .errors import AppError
 from .execution_progress import complete_item, finish_progress, start_item, start_progress, update_file_progress, update_progress
 from .models import ExecuteRequest, ExecuteResponse, ExecutionItem, ExecutionRun, OperationRecord, PlanExecuteRequest
 from .planner import validate_stored_plan
-from .quarantine import quarantine_item
+from .quarantine import QuarantineRecoveryRequired, quarantine_item
 from .recovery import ROLLBACK_TARGET_EXISTS, build_rollback_preview, is_rollbackable_item
 from .repository import (
     create_run,
@@ -230,13 +230,26 @@ def _execute_quarantine_item(run_item: ExecutionItem, scan_root: Path, item, qua
     source = Path(item.source_path).resolve(strict=False)
     if not source.exists():
         return upsert_run_item(run_item.model_copy(update={"state": RunItemState.FAILED, "message": "source_missing", "issue_code": IssueCode.SOURCE_MISSING}))
-    target, _manifest = quarantine_item(
-        run_item.run_id,
-        scan_root,
-        item,
-        quarantine_dir,
-        progress_callback=lambda copied, total: update_file_progress(run_item.run_id, copied, total),
-    )
+    try:
+        target, _manifest = quarantine_item(
+            run_item.run_id,
+            scan_root,
+            item,
+            quarantine_dir,
+            progress_callback=lambda copied, total: update_file_progress(run_item.run_id, copied, total),
+        )
+    except QuarantineRecoveryRequired as exc:
+        return upsert_run_item(
+            run_item.model_copy(
+                update={
+                    "state": RunItemState.FAILED,
+                    "message": "quarantine_recovery_required",
+                    "issue_code": "quarantine_recovery_required",
+                    "target_path": str(exc.target_path),
+                    "temp_path": str(exc.target_path),
+                }
+            )
+        )
     return upsert_run_item(
         run_item.model_copy(update={"state": RunItemState.QUARANTINED, "message": "quarantined", "target_path": str(target)})
     )
