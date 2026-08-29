@@ -140,6 +140,22 @@ def test_advertising_directory_bypasses_extension_filter(tmp_path: Path) -> None
     assert str(unrelated_archive.relative_to(tmp_path)) not in by_path
 
 
+def test_advertising_scan_root_bypasses_extension_filter(tmp_path: Path) -> None:
+    advertising_root = tmp_path / "宣傳文件"
+    advertising_root.mkdir()
+    archive = advertising_root / "avmans最新导航地址.chm"
+    archive.write_bytes(b"advertising")
+    video = advertising_root / "ABP-123.mp4"
+    video.write_bytes(b"video")
+
+    scan = scan_files(ScanRequest(root_path=str(advertising_root), extensions=[".mp4"]))
+
+    assert {item.relative_path for item in scan.files} == {archive.name, video.name}
+    plan = build_plan(PlanRequest(root_path=scan.root_path, files=scan.files))
+    assert {item.reason for item in plan.items} == {"advertising_directory"}
+    assert all(item.action == "quarantine" and item.selected_default for item in plan.items)
+
+
 def test_obvious_advertising_image_defaults_to_quarantine(tmp_path: Path) -> None:
     advertising_image = tmp_path / "色中色论坛地址宣传图.jpg"
     advertising_image.write_bytes(b"advertising")

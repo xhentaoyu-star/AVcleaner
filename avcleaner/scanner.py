@@ -37,6 +37,7 @@ def scan_files(request: ScanRequest) -> ScanResponse:
     if request.extensions:
         allowed_extensions = {normalize_extension(ext) for ext in request.extensions if normalize_extension(ext)}
     advertising_directory_names = {name.casefold() for name in ADVERTISING_DIRECTORY_NAMES}
+    root_is_advertising_directory = root.name.casefold() in advertising_directory_names
 
     exclude_dirs = {name.lower() for name in (request.exclude_dirs or [])}
     exclude_dirs.add(QUARANTINE_DIR_NAME)
@@ -69,7 +70,9 @@ def scan_files(request: ScanRequest) -> ScanResponse:
     for path in walk_files(root):
         ext = normalize_extension(path.suffix)
         relative_parts = path.relative_to(root).parts
-        inside_advertising_directory = any(part.casefold() in advertising_directory_names for part in relative_parts[:-1])
+        inside_advertising_directory = root_is_advertising_directory or any(
+            part.casefold() in advertising_directory_names for part in relative_parts[:-1]
+        )
         if allowed_extensions is not None and ext not in allowed_extensions and not inside_advertising_directory:
             continue
         try:

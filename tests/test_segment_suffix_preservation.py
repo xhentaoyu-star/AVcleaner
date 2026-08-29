@@ -29,3 +29,20 @@ def test_numeric_segment_suffixes_still_use_part_suffix() -> None:
     assert suggestion.part_suffix == "-2"
     assert suggestion.variant == ""
     assert "detect_part_suffix" in [step.rule_id for step in suggestion.trace]
+
+
+def test_zero_padded_numeric_segment_suffixes_are_preserved() -> None:
+    examples = {
+        "ABP-123-00.mp4": ("ABP-123-00.mp4", "-00"),
+        "ABP-123_01.mp4": ("ABP-123-01.mp4", "-01"),
+        "ABP-123-09.mp4": ("ABP-123-09.mp4", "-09"),
+        "FC2-PPV-1234567_00.mp4": ("FC2-PPV-1234567-00.mp4", "-00"),
+    }
+
+    for source, (expected_name, expected_part) in examples.items():
+        suggestion = suggest_name_with_trace(source)
+
+        assert suggestion.suggested_name == expected_name
+        assert suggestion.part_suffix == expected_part
+        assert suggestion.variant == ""
+        assert "detect_part_suffix" in [step.rule_id for step in suggestion.trace]

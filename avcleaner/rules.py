@@ -223,7 +223,7 @@ def parse_tail(text: str, match_end: int) -> tuple[str, str]:
 
     part_match = PART_RE.match(tail)
     if part_match:
-        part_suffix = f"-{int(part_match.group(1))}"
+        part_suffix = f"-{part_match.group(1)}"
         tail = tail[part_match.end() :].strip()
 
     variant_match = VARIANT_RE.match(tail)
