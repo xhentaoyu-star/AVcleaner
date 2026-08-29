@@ -39,3 +39,13 @@ def test_media_code_style_can_preserve_existing_code_text() -> None:
 
     assert suggestion.suggested_name == "ABP123.mp4"
     assert suggestion.media_code == "ABP123"
+
+
+def test_preserve_existing_does_not_duplicate_compact_variant() -> None:
+    settings = RuleSettings(media_code_style="preserve_existing")
+
+    for source in ("SUPD-103C.mp4", "ABP123C.mp4"):
+        suggestion = suggest_name_with_trace(source, settings)
+
+        assert suggestion.suggested_name == source
+        assert suggestion.variant == "-C"

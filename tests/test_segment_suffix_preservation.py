@@ -36,6 +36,7 @@ def test_zero_padded_numeric_segment_suffixes_are_preserved() -> None:
         "ABP-123-00.mp4": ("ABP-123-00.mp4", "-00"),
         "ABP-123_01.mp4": ("ABP-123-01.mp4", "-01"),
         "ABP-123-09.mp4": ("ABP-123-09.mp4", "-09"),
+        "ABP-123-001.mp4": ("ABP-123-001.mp4", "-001"),
         "FC2-PPV-1234567_00.mp4": ("FC2-PPV-1234567-00.mp4", "-00"),
     }
 

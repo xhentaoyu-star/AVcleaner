@@ -52,3 +52,36 @@ def test_fc2_variants_normalize_to_single_format() -> None:
     ]
 
     assert {suggest_name_with_trace(name).suggested_name for name in names} == {"FC2-PPV-1234567.mp4"}
+
+
+def test_bracket_words_are_not_mistaken_for_advertising() -> None:
+    for label in ("Adventure", "Lady", "Network", "Orgasm", "TV", "CC"):
+        suggestion = suggest_name_with_trace(f"[{label}] ABP-123.mp4")
+
+        assert not any(step.rule_id == "remove_bracket_ad" for step in suggestion.trace), label
+        assert "unrecognized_filename_text" in suggestion.warnings, label
+        assert suggestion.requires_review is True, label
+
+
+def test_unrecognized_prefix_or_suffix_requires_review() -> None:
+    examples = {
+        "TITLE ABP-123.mp4": "ABP-123.mp4",
+        "ABP-123-FINAL.mp4": "ABP-123.mp4",
+        "ABP-123-2-C-RAW.mp4": "ABP-123-2-C.mp4",
+        "[Adventure] ABP-123.mp4": "ABP-123.mp4",
+    }
+
+    for source, expected_name in examples.items():
+        suggestion = suggest_name_with_trace(source)
+
+        assert suggestion.suggested_name == expected_name
+        assert "unrecognized_filename_text" in suggestion.warnings
+        assert suggestion.requires_review is True
+
+
+def test_bracket_ad_domain_with_www_prefix_is_fully_recognized() -> None:
+    suggestion = suggest_name_with_trace("[www.x18r.tv] ABP-123.mp4")
+
+    assert suggestion.suggested_name == "ABP-123.mp4"
+    assert "unrecognized_filename_text" not in suggestion.warnings
+    assert suggestion.requires_review is False

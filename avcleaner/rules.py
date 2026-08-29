@@ -41,12 +41,15 @@ class CodeInfo:
 class CodeCandidate:
     code: str
     raw: str
+    raw_code: str
     pattern: str
     confidence: float
     match_start: int
     match_end: int
     part_suffix: str = ""
     variant: str = ""
+    unrecognized_prefix: str = ""
+    unrecognized_suffix: str = ""
 
 
 VALID_RULE_IDS = set(RULE_TRACE_IDS)
@@ -63,7 +66,7 @@ CODE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 AD_DOMAIN_REGEXES = [re.compile(pattern) for pattern in AD_DOMAIN_PATTERNS]
 GENERIC_DOMAIN_RE = re.compile(r"(?i)(?:^|[\s@\[\](_-])((?:[a-z0-9-]+\.)+(?:com|net|org|tv|xyz|cc|me))(?:@)?")
 BRACKET_SEGMENT_RE = re.compile(r"[\[({<]([^\])}>]{1,80})[\])}>]")
-PART_RE = re.compile(r"(?i)^(?:[\s._-]*(?:part|pt|cd|disc|disk)?[\s._-]*)([0-9]{1,2})(?=$|[\s._-])")
+PART_RE = re.compile(r"(?i)^(?:[\s._-]*(?:part|pt|cd|disc|disk)?[\s._-]*)([0-9]{1,3})(?=$|[\s._-])")
 VARIANT_RE = re.compile(r"(?i)^(?:[\s._-]+)?(UC|U|C|LEAK|UNCENSORED(?:[-_\s]?LEAK)?|CH|SUB|SUBBED|VR)(?=$|[\s._-])")
 DATE_TOKEN_RE = re.compile(r"(?<![0-9])20[0-9]{2}[-_.][0-9]{2}[-_.][0-9]{2}(?![0-9])")
 NOISE_TOKEN_RE = re.compile(
@@ -72,7 +75,8 @@ NOISE_TOKEN_RE = re.compile(
 WINDOWS_UNSAFE_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 SEPARATOR_RE = re.compile(r"[\s._-]+")
 NOISE_PREFIXES = {"AAC", "FLAC", "HEVC", "WEB", "BLURAY", "H264", "H265", "X264", "X265", "AV1", "BIT"}
-BRACKET_AD_MARKERS = ("com", "net", "org", "tv", "xyz", "cc", "hhd800", "x18r", "promo", "ad", "release")
+BRACKET_AD_WORD_RE = re.compile(r"(?i)(?<![A-Z0-9])(?:WWW|PROMO|AD|RELEASE)(?![A-Z0-9])")
+BRACKET_DOMAIN_RE = re.compile(r"(?i)(?:[A-Z0-9-]+\.)+(?:COM|NET|ORG|TV|XYZ|CC|ME)(?![A-Z0-9])")
 MAX_RULE_TEST_FILENAME_LENGTH = 255
 MAX_REMOVED_TOKENS_PER_STEP = 20
 MAX_WARNINGS_PER_TRACE_STEP = 20
@@ -194,8 +198,8 @@ def remove_bracket_ads(stem: str) -> tuple[str, list[str]]:
     matches = []
     removed = []
     for match in BRACKET_SEGMENT_RE.finditer(stem):
-        body = match.group(1).lower()
-        if any(marker in body for marker in BRACKET_AD_MARKERS):
+        body = match.group(1)
+        if BRACKET_AD_WORD_RE.search(body) or BRACKET_DOMAIN_RE.search(body):
             matches.append(match)
             removed.append(match.group(0))
     return _replace_with_space(stem, matches), removed
@@ -216,7 +220,7 @@ def remove_noise_tokens(stem: str, extra_tokens: list[str] | None = None) -> tup
     return _replace_with_space(stem, matches), sorted(set(removed))
 
 
-def parse_tail(text: str, match_end: int) -> tuple[str, str]:
+def parse_tail(text: str, match_end: int) -> tuple[str, str, str]:
     tail = text[match_end:].strip()
     part_suffix = ""
     variant = ""
@@ -230,12 +234,14 @@ def parse_tail(text: str, match_end: int) -> tuple[str, str]:
     if variant_match:
         raw = variant_match.group(1)
         variant = "-" + re.sub(r"[\s_]+", "-", raw.upper())
+        tail = tail[variant_match.end() :].strip()
 
     compact_variant = re.match(r"(?i)^[\s._-]*([A-Z])(?=$|[\s._-])", tail)
     if not variant and compact_variant:
         variant = "-" + compact_variant.group(1).upper()
+        tail = tail[compact_variant.end() :].strip()
 
-    return part_suffix, variant
+    return part_suffix, variant, tail
 
 
 def _candidate_from_match(pattern_name: str, match: re.Match[str], text: str) -> CodeCandidate | None:
@@ -255,18 +261,23 @@ def _candidate_from_match(pattern_name: str, match: re.Match[str], text: str) ->
         confidence = 0.92 if pattern_name != "compact" else 0.86
     if code is None:
         return None
-    part_suffix, variant = parse_tail(text, match.end())
+    part_suffix, variant, unrecognized_suffix = parse_tail(text, match.end())
     if pattern_name == "suffix_variant":
         variant = "-" + match.group(3).upper()
+    raw = match.group(0)
+    raw_code = raw[: -len(match.group(3))] if pattern_name == "suffix_variant" else raw
     return CodeCandidate(
         code=code,
-        raw=match.group(0),
+        raw=raw,
+        raw_code=raw_code,
         pattern=pattern_name,
         confidence=confidence,
         match_start=match.start(),
         match_end=match.end(),
         part_suffix=part_suffix,
         variant=variant,
+        unrecognized_prefix=text[: match.start()].strip(),
+        unrecognized_suffix=unrecognized_suffix,
     )
 
 
@@ -310,6 +321,10 @@ def _rule_enabled(settings: RuleConfig, rule_id: str) -> bool:
 
 def _is_segment_suffix(value: str) -> bool:
     return bool(re.fullmatch(r"-[A-Z]", value or ""))
+
+
+def _contains_filename_text(value: str) -> bool:
+    return any(character.isalnum() for character in value)
 
 
 def _render_template(
@@ -395,11 +410,14 @@ def suggest_name_with_trace(filename: str, settings: RuleConfig | None = None) -
 
     candidates = sorted(candidates, key=lambda item: (-item.confidence, item.match_start))
     chosen = candidates[0]
-    render_code = chosen.raw if settings.media_code_style == "preserve_existing" else chosen.code
+    preserve_compact_variant = settings.media_code_style == "preserve_existing" and chosen.pattern == "suffix_variant"
+    render_code = chosen.raw_code if settings.media_code_style == "preserve_existing" else chosen.code
     if settings.normalize_case:
         render_code = render_code.upper()
     if len(candidates) > 1:
         warnings.append("multiple_media_code_candidates")
+    if _contains_filename_text(chosen.unrecognized_prefix) or _contains_filename_text(chosen.unrecognized_suffix):
+        warnings.append("unrecognized_filename_text")
     trace.append(
         _step(
             "detect_media_code",
@@ -410,17 +428,20 @@ def suggest_name_with_trace(filename: str, settings: RuleConfig | None = None) -
             warnings=warnings,
         )
     )
-    if chosen.raw != render_code and _rule_enabled(settings, "normalize_media_code"):
-        trace.append(_step("normalize_media_code", chosen.raw, render_code, preserved_tokens=[render_code]))
+    if chosen.raw_code != render_code and _rule_enabled(settings, "normalize_media_code"):
+        trace.append(_step("normalize_media_code", chosen.raw_code, render_code, preserved_tokens=[render_code]))
     part_suffix = chosen.part_suffix if settings.preserve_part_suffix and settings.keep_part_suffix else ""
     segment_suffix = chosen.variant if _is_segment_suffix(chosen.variant) and settings.preserve_part_suffix and settings.keep_part_suffix else ""
     variant = "" if segment_suffix else (chosen.variant if settings.preserve_variant else "")
+    template_variant = f"{segment_suffix}{variant}"
+    if preserve_compact_variant and template_variant:
+        template_variant = chosen.raw[-1].upper() if settings.normalize_case else chosen.raw[-1]
     if part_suffix and _rule_enabled(settings, "detect_part_suffix"):
         trace.append(_step("detect_part_suffix", current[chosen.match_end :].strip(), part_suffix, preserved_tokens=[part_suffix]))
     if segment_suffix and _rule_enabled(settings, "detect_segment_suffix"):
         trace.append(_step("detect_segment_suffix", current[chosen.match_end :].strip(), segment_suffix, preserved_tokens=[segment_suffix]))
     if segment_suffix and _rule_enabled(settings, "preserve_segment_suffix"):
-        trace.append(_step("preserve_segment_suffix", render_code, f"{render_code}{segment_suffix}", preserved_tokens=[segment_suffix]))
+        trace.append(_step("preserve_segment_suffix", render_code, f"{render_code}{template_variant}", preserved_tokens=[segment_suffix]))
     if variant and _rule_enabled(settings, "detect_variant"):
         trace.append(_step("detect_variant", current[chosen.match_end :].strip(), variant, preserved_tokens=[variant]))
     language_part = f".{language_suffix}" if language_suffix else ""
@@ -438,7 +459,7 @@ def suggest_name_with_trace(filename: str, settings: RuleConfig | None = None) -
     if ext_part and _rule_enabled(settings, "preserve_extension"):
         trace.append(_step("preserve_extension", original_name, preserved_extension, preserved_tokens=[preserved_extension]))
 
-    rendered = _render_template(settings, code=render_code, part=part_suffix, variant=f"{segment_suffix}{variant}", language=language_part, ext=ext_part)
+    rendered = _render_template(settings, code=render_code, part=part_suffix, variant=template_variant, language=language_part, ext=ext_part)
     safe_name, safe_warnings = _safe_windows_name(rendered)
     warnings.extend(safe_warnings)
     warnings = _bounded_suggestion_warnings(warnings)
