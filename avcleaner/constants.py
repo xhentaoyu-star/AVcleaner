@@ -24,6 +24,7 @@ OBVIOUS_ADVERTISING_FILENAME_TOKENS = {
 ADVERTISING_DIRECTORY_NAMES = {"宣传文件", "宣傳文件"}
 LARGE_TEMP_JUNK_EXTENSIONS = {".parts", ".qkdownloading", ".xltd", ".aria2"}
 LARGE_TEMP_JUNK_REVIEW_BYTES = 1024 * 1024 * 1024
+QUARANTINE_COPY_TEMP_SUFFIX = ".avcleaner-copy.tmp"
 
 RULE_TRACE_IDS = {
     "unicode_normalize",

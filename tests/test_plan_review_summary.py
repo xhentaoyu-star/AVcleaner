@@ -35,10 +35,12 @@ def test_plan_items_expose_review_fields(tmp_path: Path, client, auth_headers: d
     item = plan["items"][0]
 
     assert item["blocking"] is False
-    assert item["warning_count"] == 0
+    assert item["warning_count"] == 1
+    assert item["warnings"] == ["media_code_not_detected"]
     assert item["issue_codes"] == []
     assert item["requires_review"] is True
     assert "requires_review" in item["review_buckets"]
+    assert "warning" in item["review_buckets"]
     assert item["selected"] is False
 
 

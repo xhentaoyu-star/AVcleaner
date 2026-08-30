@@ -6,11 +6,14 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterable
 
+from .constants import QUARANTINE_COPY_TEMP_SUFFIX
 from .database import connect, dumps, loads, utc_now_iso
-from .enums import PlanState, RunItemState, RunState
+from .enums import Operation, PlanState, RunItemState, RunState
+from .fingerprint import snapshot_for_path
 from .models import (
     ExecutionItem,
     ExecutionRun,
+    FileSnapshot,
     LLMSuggestionRecord,
     PlanItem,
     PlanRecord,
@@ -532,15 +535,339 @@ def set_local_ui_state(key: str, value: str) -> dict:
     return {"key": key, "value": value, "updated_at": now}
 
 
+def _matches_persisted_snapshot(path: Path, snapshot_json: str) -> bool:
+    if not snapshot_json or snapshot_json == "{}":
+        return False
+    try:
+        expected = FileSnapshot.model_validate(loads(snapshot_json))
+        current = snapshot_for_path(path)
+    except (OSError, TypeError, ValueError):
+        return False
+    return (
+        current.size == expected.size
+        and int(current.modified_ns) == int(expected.modified_ns)
+        and current.fingerprint == expected.fingerprint
+    )
+
+
+def _mark_source_run_rolled_back_if_complete(conn, source_run_id: str, now: str) -> None:
+    source_items = conn.execute(
+        "SELECT state, temp_path, rollback_status FROM run_items WHERE run_id = ?",
+        (source_run_id,),
+    ).fetchall()
+    rollbackable = [
+        item
+        for item in source_items
+        if item["state"] in {str(RunItemState.RENAMED), str(RunItemState.QUARANTINED)}
+        or (item["state"] == str(RunItemState.FAILED) and bool(item["temp_path"]))
+    ]
+    if not rollbackable:
+        return
+    if not all(item["rollback_status"] == str(RunItemState.ROLLED_BACK) for item in rollbackable):
+        conn.execute(
+            "UPDATE runs SET rollback_available = 1, updated_at = ? WHERE run_id = ?",
+            (now, source_run_id),
+        )
+        return
+    conn.execute(
+        """
+        UPDATE runs
+        SET state = ?, status = ?, updated_at = ?, completed_at = ?, rollback_available = 0
+        WHERE run_id = ?
+        """,
+        (RunState.ROLLED_BACK, RunState.ROLLED_BACK, now, now, source_run_id),
+    )
+
+
+def _update_persisted_quarantine_status(conn, source_run_id: str, plan_item_id: str, status: str) -> None:
+    manifest_row = conn.execute(
+        "SELECT manifest_json FROM quarantine_manifests WHERE run_id = ? AND item_id = ?",
+        (source_run_id, plan_item_id),
+    ).fetchone()
+    if manifest_row is None:
+        return
+    manifest_payload = loads(manifest_row["manifest_json"])
+    manifest_payload["restore_status"] = status
+    conn.execute(
+        """
+        UPDATE quarantine_manifests
+        SET restore_status = ?, manifest_json = ?
+        WHERE run_id = ? AND item_id = ?
+        """,
+        (status, dumps(manifest_payload), source_run_id, plan_item_id),
+    )
+
+
+def _record_interrupted_rollback_failure(
+    conn,
+    *,
+    pending_item_id: str,
+    source_item_id: str | None,
+    error_code: str,
+    now: str,
+) -> None:
+    conn.execute(
+        """
+        UPDATE run_items
+        SET state = ?, message = ?, issue_code = ?, rollback_status = ?,
+            rollback_error_code = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            RunItemState.ROLLBACK_FAILED,
+            error_code,
+            error_code,
+            RunItemState.ROLLBACK_FAILED,
+            error_code,
+            now,
+            pending_item_id,
+        ),
+    )
+    if source_item_id:
+        conn.execute(
+            """
+            UPDATE run_items
+            SET rollback_status = ?, rollback_error_code = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (RunItemState.ROLLBACK_FAILED, error_code, now, source_item_id),
+        )
+
+
+def _cleanup_expected_copy_temp(target: Path, raw_temp_path: str, *, owned: bool) -> bool:
+    raw_temp_path = str(raw_temp_path or "").strip()
+    if not raw_temp_path or not owned:
+        return True
+    temp_path = Path(raw_temp_path)
+    expected = target.with_name(f".{target.name}{QUARANTINE_COPY_TEMP_SUFFIX}")
+    try:
+        if temp_path.resolve(strict=False) != expected.resolve(strict=False):
+            return False
+        if temp_path.is_dir():
+            return False
+        temp_path.unlink(missing_ok=True)
+    except OSError:
+        return False
+    return True
+
+
+def _recover_interrupted_rollback_items(conn, rollback_run_id: str, source_run_id: str, now: str) -> None:
+    if not source_run_id:
+        return
+    pending_items = conn.execute(
+        """
+        SELECT id, plan_item_id, operation, source_path, target_path, snapshot_json
+        FROM run_items
+        WHERE run_id = ? AND state = ?
+        """,
+        (rollback_run_id, RunItemState.PENDING),
+    ).fetchall()
+    for pending_item in pending_items:
+        rollback_source = Path(pending_item["source_path"])
+        restore_target = Path(pending_item["target_path"])
+        source_item = conn.execute(
+            """
+            SELECT id, operation
+            FROM run_items
+            WHERE run_id = ? AND plan_item_id = ? AND operation = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (source_run_id, pending_item["plan_item_id"], pending_item["operation"]),
+        ).fetchone()
+        if source_item is None:
+            _record_interrupted_rollback_failure(
+                conn,
+                pending_item_id=pending_item["id"],
+                source_item_id=None,
+                error_code="unknown_run_item",
+                now=now,
+            )
+            continue
+
+        is_quarantine = source_item["operation"] == str(Operation.QUARANTINE)
+        if is_quarantine:
+            manifest_row = conn.execute(
+                "SELECT manifest_json FROM quarantine_manifests WHERE run_id = ? AND item_id = ?",
+                (source_run_id, pending_item["plan_item_id"]),
+            ).fetchone()
+            restore_copy_temp = ""
+            if manifest_row is not None:
+                restore_copy_temp = loads(manifest_row["manifest_json"]).get("restore_copy_temp_abs_path", "")
+            restore_copy_temp_owned = False
+            if manifest_row is not None:
+                restore_copy_temp_owned = bool(loads(manifest_row["manifest_json"]).get("restore_copy_temp_owned", False))
+            if not _cleanup_expected_copy_temp(
+                restore_target,
+                restore_copy_temp,
+                owned=restore_copy_temp_owned,
+            ):
+                _record_interrupted_rollback_failure(
+                    conn,
+                    pending_item_id=pending_item["id"],
+                    source_item_id=source_item["id"],
+                    error_code="quarantine_recovery_required",
+                    now=now,
+                )
+                _update_persisted_quarantine_status(
+                    conn,
+                    source_run_id,
+                    pending_item["plan_item_id"],
+                    "conflict",
+                )
+                continue
+
+        source_exists = rollback_source.exists()
+        target_exists = restore_target.exists()
+        if source_exists and not target_exists:
+            source_matches = _matches_persisted_snapshot(rollback_source, pending_item["snapshot_json"])
+            error_code = "operation_interrupted" if source_matches else "rollback_file_changed"
+            manifest_status = "restore_failed" if source_matches else "conflict"
+        elif source_exists and target_exists:
+            error_code = "rollback_target_exists"
+            manifest_status = "conflict"
+        elif not source_exists and not target_exists:
+            error_code = "quarantine_file_missing" if is_quarantine else "rollback_source_missing"
+            manifest_status = "missing"
+        elif not _matches_persisted_snapshot(restore_target, pending_item["snapshot_json"]):
+            error_code = "rollback_file_changed"
+            manifest_status = "conflict"
+        else:
+            error_code = ""
+            manifest_status = "restored"
+
+        if error_code:
+            _record_interrupted_rollback_failure(
+                conn,
+                pending_item_id=pending_item["id"],
+                source_item_id=source_item["id"],
+                error_code=error_code,
+                now=now,
+            )
+            if is_quarantine:
+                _update_persisted_quarantine_status(
+                    conn,
+                    source_run_id,
+                    pending_item["plan_item_id"],
+                    manifest_status,
+                )
+            continue
+
+        conn.execute(
+            """
+            UPDATE run_items
+            SET state = ?, message = ?, issue_code = '', rollback_status = ?,
+                rollback_error_code = '', updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                RunItemState.ROLLED_BACK,
+                "rollback_recovered",
+                RunItemState.ROLLED_BACK,
+                now,
+                pending_item["id"],
+            ),
+        )
+        conn.execute(
+            """
+            UPDATE run_items
+            SET rollback_status = ?, rollback_error_code = '', updated_at = ?
+            WHERE id = ?
+            """,
+            (RunItemState.ROLLED_BACK, now, source_item["id"]),
+        )
+        if is_quarantine:
+            _update_persisted_quarantine_status(
+                conn,
+                source_run_id,
+                pending_item["plan_item_id"],
+                manifest_status,
+            )
+    _mark_source_run_rolled_back_if_complete(conn, source_run_id, now)
+
+
 def mark_interrupted_runs() -> int:
     with connect() as conn:
         rows = conn.execute(
-            "SELECT run_id FROM runs WHERE state IN (?, ?)",
+            "SELECT run_id, plan_id, state FROM runs WHERE state IN (?, ?)",
             (RunState.RUNNING, RunState.ROLLBACK_RUNNING),
         ).fetchall()
         now = utc_now_iso()
         for row in rows:
             run_id = row["run_id"]
+            if row["state"] == str(RunState.ROLLBACK_RUNNING):
+                _recover_interrupted_rollback_items(conn, run_id, row["plan_id"], now)
+            pending_quarantine_items = conn.execute(
+                """
+                SELECT id, plan_item_id
+                FROM run_items
+                WHERE run_id = ? AND state = ? AND operation = ?
+                """,
+                (run_id, RunItemState.PENDING, Operation.QUARANTINE),
+            ).fetchall()
+            for pending_item in pending_quarantine_items:
+                manifest_row = conn.execute(
+                    """
+                    SELECT original_abs_path, quarantine_abs_path, manifest_json
+                    FROM quarantine_manifests
+                    WHERE run_id = ? AND item_id = ?
+                    """,
+                    (run_id, pending_item["plan_item_id"]),
+                ).fetchone()
+                if manifest_row is None:
+                    continue
+                source = Path(manifest_row["original_abs_path"])
+                target = Path(manifest_row["quarantine_abs_path"])
+                manifest_payload = loads(manifest_row["manifest_json"])
+                source_exists = source.exists()
+                target_exists = target.exists()
+                if not _cleanup_expected_copy_temp(
+                    target,
+                    manifest_payload.get("copy_temp_abs_path", ""),
+                    owned=bool(manifest_payload.get("copy_temp_owned", False)),
+                ):
+                    item_state = RunItemState.FAILED
+                    message = "quarantine_recovery_required"
+                    issue_code = "quarantine_recovery_required"
+                    manifest_status = "conflict"
+                elif target_exists and not source_exists:
+                    item_state = RunItemState.QUARANTINED
+                    message = "quarantine_recovered"
+                    issue_code = ""
+                    manifest_status = "available"
+                elif target_exists and source_exists:
+                    item_state = RunItemState.FAILED
+                    message = "quarantine_recovery_required"
+                    issue_code = "quarantine_recovery_required"
+                    manifest_status = "conflict"
+                elif not source_exists:
+                    item_state = RunItemState.FAILED
+                    message = "quarantine_recovery_required"
+                    issue_code = "quarantine_recovery_required"
+                    manifest_status = "missing"
+                else:
+                    manifest_status = "missing"
+                    item_state = RunItemState.PENDING
+                    message = ""
+                    issue_code = ""
+                manifest_payload["restore_status"] = manifest_status
+                conn.execute(
+                    """
+                    UPDATE quarantine_manifests
+                    SET restore_status = ?, manifest_json = ?
+                    WHERE run_id = ? AND item_id = ?
+                    """,
+                    (manifest_status, dumps(manifest_payload), run_id, pending_item["plan_item_id"]),
+                )
+                if item_state != RunItemState.PENDING:
+                    conn.execute(
+                        """
+                        UPDATE run_items
+                        SET state = ?, message = ?, issue_code = ?, target_path = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (item_state, message, issue_code, str(target), now, pending_item["id"]),
+                    )
             conn.execute(
                 """
                 UPDATE run_items
@@ -552,6 +879,12 @@ def mark_interrupted_runs() -> int:
             item_rows = conn.execute("SELECT state, COUNT(*) AS count FROM run_items WHERE run_id = ? GROUP BY state", (run_id,)).fetchall()
             summary = {item_row["state"]: int(item_row["count"]) for item_row in item_rows}
             rollback_available = int(_run_has_rollbackable_summary(summary))
+            recovered_rollback = (
+                row["state"] == str(RunState.ROLLBACK_RUNNING)
+                and bool(summary)
+                and set(summary) == {str(RunItemState.ROLLED_BACK)}
+            )
+            final_state = RunState.ROLLED_BACK if recovered_rollback else RunState.INTERRUPTED
             conn.execute(
                 """
                 UPDATE runs
@@ -559,7 +892,7 @@ def mark_interrupted_runs() -> int:
                     rollback_available = ?
                 WHERE run_id = ?
                 """,
-                (RunState.INTERRUPTED, RunState.INTERRUPTED, dumps(summary), now, now, rollback_available, run_id),
+                (final_state, final_state, dumps(summary), now, now, rollback_available, run_id),
             )
         conn.commit()
         return len(rows)
@@ -592,6 +925,15 @@ def save_quarantine_manifest(manifest: QuarantineManifest) -> None:
         conn.commit()
 
 
+def delete_quarantine_manifest(run_id: str, item_id: str) -> None:
+    with connect() as conn:
+        conn.execute(
+            "DELETE FROM quarantine_manifests WHERE run_id = ? AND item_id = ?",
+            (run_id, item_id),
+        )
+        conn.commit()
+
+
 def update_quarantine_manifest_restore_status(run_id: str, item_id: str, restore_status: str) -> None:
     with connect() as conn:
         row = conn.execute(
@@ -611,6 +953,43 @@ def update_quarantine_manifest_restore_status(run_id: str, item_id: str, restore
             (restore_status, dumps(payload), run_id, item_id),
         )
         conn.commit()
+
+
+def _update_quarantine_manifest_json(run_id: str, item_id: str, updates: dict) -> None:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT manifest_json FROM quarantine_manifests WHERE run_id = ? AND item_id = ?",
+            (run_id, item_id),
+        ).fetchone()
+        if row is None:
+            raise KeyError("quarantine_manifest_not_found")
+        payload = loads(row["manifest_json"])
+        payload.update(updates)
+        conn.execute(
+            """
+            UPDATE quarantine_manifests
+            SET manifest_json = ?
+            WHERE run_id = ? AND item_id = ?
+            """,
+            (dumps(payload), run_id, item_id),
+        )
+        conn.commit()
+
+
+def update_quarantine_manifest_copy_temp_owned(run_id: str, item_id: str) -> None:
+    _update_quarantine_manifest_json(run_id, item_id, {"copy_temp_owned": True})
+
+
+def update_quarantine_manifest_restore_copy_temp_path(run_id: str, item_id: str, copy_temp_path: str) -> None:
+    _update_quarantine_manifest_json(
+        run_id,
+        item_id,
+        {"restore_copy_temp_abs_path": copy_temp_path, "restore_copy_temp_owned": False},
+    )
+
+
+def update_quarantine_manifest_restore_copy_temp_owned(run_id: str, item_id: str) -> None:
+    _update_quarantine_manifest_json(run_id, item_id, {"restore_copy_temp_owned": True})
 
 
 def create_llm_suggestion(record: LLMSuggestionRecord) -> LLMSuggestionRecord:

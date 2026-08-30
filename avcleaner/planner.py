@@ -131,6 +131,8 @@ def decorate_plan_item(item: PlanItem) -> PlanItem:
     warnings = list(item.warnings)
     if _large_temp_requires_manual_selection(item) and LARGE_TEMP_MANUAL_SELECTION_WARNING not in warnings:
         warnings.append(LARGE_TEMP_MANUAL_SELECTION_WARNING)
+    warning_codes = set(warnings)
+    warning_codes.update(str(issue.code) for issue in item.issues if not issue.blocking)
     selected = bool(item.checked or item.selected) and not blocking
     action = item.operation or item.action
     selection_locked = blocking or item.requires_review or action not in EXECUTABLE_ACTIONS
@@ -149,7 +151,7 @@ def decorate_plan_item(item: PlanItem) -> PlanItem:
         buckets.add("selected")
     if blocking:
         buckets.add("blocking")
-    if any(not issue.blocking for issue in item.issues):
+    if warning_codes:
         buckets.add("warning")
     if item.requires_review:
         buckets.add("requires_review")
@@ -169,7 +171,7 @@ def decorate_plan_item(item: PlanItem) -> PlanItem:
             "selected": selected,
             "warnings": warnings,
             "blocking": blocking,
-            "warning_count": len([issue for issue in item.issues if not issue.blocking]),
+            "warning_count": len(warning_codes),
             "issue_codes": issue_codes,
             "review_reason_codes": review_reasons,
             "selection_locked": selection_locked,
@@ -239,7 +241,7 @@ def plan_item_from_scan(plan_id: str, root: Path, item: ScanItem, rules: RuleCon
     sidecar_role = sidecar_type or ""
     ruleset_hash = compute_ruleset_hash(rules)
 
-    junk, junk_reason = is_junk_file(item, rules.custom_junk_keywords, rules.trash_zero_byte)
+    junk, junk_reason = is_junk_file(item, rules.custom_junk_keywords, rules.trash_zero_byte, rules.junk_extensions)
     if junk:
         action = Operation.QUARANTINE
         confidence = 0.96
@@ -445,6 +447,7 @@ def patch_plan_item(plan_id: str, item_id: str, target_name: str) -> PlanItemPat
                 "checked": True,
                 "selected": True,
                 "selected_default": True,
+                "requires_review": False,
                 "manual_edited": True,
                 "last_edited_at": now,
                 "trace": [

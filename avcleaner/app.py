@@ -453,7 +453,10 @@ def _prepare_scan_request(request: ScanRequest, settings: AppSettings) -> ScanRe
         request.exclude_dirs = settings.exclude_dirs
     if request.extensions is None:
         request.extensions = sorted(
-            set(settings.video_extensions) | set(settings.sidecar_extensions) | set(JUNK_EXTENSIONS) | set(TEXT_JUNK_EXTENSIONS)
+            set(settings.video_extensions)
+            | set(settings.sidecar_extensions)
+            | set(settings.rules.junk_extensions)
+            | set(TEXT_JUNK_EXTENSIONS)
         )
     return request
 

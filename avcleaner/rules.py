@@ -539,8 +539,17 @@ def extract_media_code(name: str) -> CodeInfo | None:
     )
 
 
-def is_junk_file(item: FileItem, custom_keywords: list[str], trash_zero_byte: bool) -> tuple[bool, str]:
+def is_junk_file(
+    item: FileItem,
+    custom_keywords: list[str],
+    trash_zero_byte: bool,
+    junk_extensions: list[str] | set[str] | None = None,
+) -> tuple[bool, str]:
     ext = normalize_extension(item.extension)
+    effective_junk_extensions = {
+        normalize_extension(value)
+        for value in (JUNK_EXTENSIONS if junk_extensions is None else junk_extensions)
+    }
     lower_name = item.name.lower()
     compact_name = re.sub(r"\s+", "", normalize_text(item.name)).casefold()
     parent_names = {
@@ -555,7 +564,7 @@ def is_junk_file(item: FileItem, custom_keywords: list[str], trash_zero_byte: bo
         if any(keyword.lower() in lower_name for keyword in custom_keywords if keyword.strip()):
             return True, "custom_junk_keyword"
         return False, ""
-    if ext in JUNK_EXTENSIONS:
+    if ext in effective_junk_extensions:
         return True, "download_residue_or_shortcut"
     if trash_zero_byte and item.size == 0:
         return True, "empty_file"

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import errno
+import json
 import shutil
 from pathlib import Path
 
@@ -7,14 +9,23 @@ import pytest
 
 from conftest import make_file
 
-from avcleaner.enums import IssueCode, RunItemState, RunState
+from avcleaner.database import connect
+from avcleaner.enums import IssueCode, Operation, RunItemState, RunState
 from avcleaner.errors import AppError
-from avcleaner.models import PlanExecuteRequest, PlanRequest, ScanRequest
+from avcleaner.fingerprint import snapshot_for_path
+from avcleaner.models import ExecutionItem, ExecutionRun, PlanExecuteRequest, PlanRequest, QuarantineManifest, ScanRequest
 from avcleaner.executor import execute_plan_by_id, rollback_run, validate_execute_request
 from avcleaner.planner import create_plan
-from avcleaner.repository import create_run, create_scan, get_run, get_run_items, mark_interrupted_runs
+from avcleaner.repository import (
+    create_run,
+    create_scan,
+    get_run,
+    get_run_items,
+    mark_interrupted_runs,
+    save_quarantine_manifest,
+    upsert_run_item,
+)
 from avcleaner.scanner import scan_files
-from avcleaner.models import ExecutionRun
 
 
 def plan_for(root: Path):
@@ -234,6 +245,70 @@ def test_rollback_continues_after_one_item_move_fails(tmp_path: Path, monkeypatc
     assert rollback.state == RunState.ROLLBACK_PARTIAL
     assert {item.state for item in rollback.items} == {RunItemState.ROLLED_BACK, RunItemState.ROLLBACK_FAILED}
     assert move_calls == 2
+
+
+def test_failed_quarantine_recovery_uses_verified_cross_volume_move(tmp_path: Path, monkeypatch) -> None:
+    original = tmp_path / "source" / "ad.url"
+    recovery_file = tmp_path / "quarantine" / "ad.url"
+    recovery_file.parent.mkdir(parents=True)
+    recovery_file.write_bytes(b"recover me")
+    snapshot = snapshot_for_path(recovery_file)
+    run = create_run(ExecutionRun(run_id="run_quarantine_recovery_move", state=RunState.FAILED, summary={"failed": 1}))
+    upsert_run_item(
+        ExecutionItem(
+            id="runitem_quarantine_recovery_move",
+            run_id=run.run_id,
+            plan_item_id="planitem_quarantine_recovery_move",
+            operation=Operation.QUARANTINE,
+            state=RunItemState.FAILED,
+            source_path=str(original),
+            target_path=str(recovery_file),
+            temp_path=str(recovery_file),
+            message="quarantine_recovery_required",
+                issue_code="quarantine_recovery_required",
+                snapshot=snapshot,
+            )
+        )
+    save_quarantine_manifest(
+        QuarantineManifest(
+            run_id=run.run_id,
+            item_id="planitem_quarantine_recovery_move",
+            original_abs_path=str(original),
+            original_rel_path=original.name,
+            quarantine_abs_path=str(recovery_file),
+            size=snapshot.size,
+            created_ns=snapshot.created_ns,
+            modified_ns=snapshot.modified_ns,
+            reason="download_residue_or_shortcut",
+            restore_status="pending",
+        )
+    )
+    real_rename = Path.rename
+
+    def force_cross_volume(path: Path, target: Path):
+        if path == recovery_file:
+            raise OSError(errno.EXDEV, "cross-volume recovery test")
+        return real_rename(path, target)
+
+    def reject_unverified_move(*_args, **_kwargs):
+        raise AssertionError("quarantine recovery must not use shutil.move")
+
+    monkeypatch.setattr(Path, "rename", force_cross_volume)
+    monkeypatch.setattr("avcleaner.executor.shutil.move", reject_unverified_move)
+
+    rollback = rollback_run(run.run_id)
+
+    assert rollback.state == RunState.ROLLED_BACK
+    assert original.read_bytes() == b"recover me"
+    assert not recovery_file.exists()
+    with connect() as conn:
+        manifest_row = conn.execute(
+            "SELECT manifest_json FROM quarantine_manifests WHERE run_id = ?",
+            (run.run_id,),
+        ).fetchone()
+    manifest_payload = json.loads(manifest_row["manifest_json"])
+    assert manifest_payload["restore_copy_temp_owned"] is True
+    assert not Path(manifest_payload["restore_copy_temp_abs_path"]).exists()
 
 
 def test_plan_hash_mismatch_blocks_execution(tmp_path: Path) -> None:

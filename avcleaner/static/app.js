@@ -275,6 +275,53 @@ const CODE_EXPLANATIONS = {
     explanation: "Windows 文件操作没有完成，且没有返回可安全归类的具体原因。",
     suggested_action: "查看执行详情，确认文件是否被占用、权限受限或路径已变化。",
   },
+  "unrecognized_filename_text": {
+    title: "文件名含未确认文字",
+    explanation: "番号前后还有无法确定用途的文字，AVcleaner 不会自动删掉这些内容。",
+    suggested_action: "核对原文件名；确认后可手动输入最终文件名。",
+  },
+  "configured_part_suffix_removal": {
+    title: "设置会删除分段编号",
+    explanation: "当前规则会删除类似 -00、-01 或 CD2 的分段信息，因此不能自动执行。",
+    suggested_action: "保留分段编号，或逐项确认后手动改名。",
+  },
+  "configured_variant_removal": {
+    title: "设置会删除版本标记",
+    explanation: "当前规则会删除版本或片源标记，可能把不同文件改成相同名字。",
+    suggested_action: "保留版本标记，或逐项确认后手动改名。",
+  },
+  "large_temp_file_requires_manual_selection": {
+    title: "大文件需手动选择",
+    explanation: "这是体积较大的下载残留候选，安全选择不会自动勾选它。",
+    suggested_action: "确认下载已经停止且文件确实无用后，再手动选择隔离。",
+  },
+  "quarantine_inside_scan_root": {
+    title: "隔离目录位于扫描目录内",
+    explanation: "隔离目录和扫描范围重叠，会造成重复扫描或再次处理，后端已阻止移动。",
+    suggested_action: "把隔离目录改到扫描文件夹之外。",
+    severity: "blocking",
+  },
+  "quarantine_recovery_required": {
+    title: "隔离操作需要恢复",
+    explanation: "文件移动后记录或补偿没有完整完成，程序已保留实际路径供恢复。",
+    suggested_action: "不要重新下载或删除文件；在历史记录中执行回滚，失败时保留诊断信息。",
+    severity: "blocking",
+  },
+  "quarantine_recovered": {
+    title: "已恢复隔离记录",
+    explanation: "程序启动时发现上次中断前文件已经进入隔离区，并恢复了可回滚记录。",
+    suggested_action: "可在历史记录中检查并按需回滚。",
+  },
+  "rollback_recovered": {
+    title: "已恢复回滚记录",
+    explanation: "程序启动时确认文件已安全回到原位置，并补齐了上次中断前尚未写入的回滚记录。",
+    suggested_action: "可在历史记录中核对文件和回滚状态，无需重复回滚。",
+  },
+  "operation_interrupted": {
+    title: "操作被意外中断",
+    explanation: "上次运行在文件操作完成前退出，未完成项目已标记失败。",
+    suggested_action: "检查原文件和隔离区后重新扫描；已有可回滚项可从历史记录恢复。",
+  },
   "requires_review_item_selected": {
     title: "需复核项目不能直接执行",
     explanation: "执行请求包含了仍需人工复核的项目，后端已阻止此次操作。",
@@ -885,7 +932,7 @@ function severityFor(code) {
   if (["blocking", "target_exists", "target_exists_case_insensitive", "duplicate_target", "duplicate_target_case_insensitive", "path_escape", "extension_changed", "empty_name", "invalid_character", "control_character", "trailing_dot_or_space", "reserved_name", "reserved_name_with_extension", "alternate_data_stream", "source_missing", "source_changed", "file_in_use", "operation_failed", "path_too_long", "restore_target_exists", "rollback_target_exists", "rollback_source_missing", "quarantine_file_missing", "rollback_file_changed", "unknown_run_item", "rollback_already_completed", "rollback_not_available", "blocking_item_selected", "invalid_target_name", "path_separator_in_target", "plan_hash_mismatch", "legacy_execute_disabled", "legacy_llm_suggest_disabled", "request_extra_fields", "llm_payload_privacy_violation", "blocking_suggestion", "failed", "rollback_failed"].includes(raw)) {
     return "blocking";
   }
-  if (raw.startsWith("llm_") || ["warning", "low_confidence", "path_near_limit", "case_only_rename", "download_residue_or_shortcut", "empty_file", "advertising_text_or_html_file", "custom_junk_keyword", "requires_review", "partial_success", "rollback_partial", "interrupted", "abandoned", "invalid"].includes(raw)) {
+  if (raw.startsWith("llm_") || ["warning", "low_confidence", "path_near_limit", "case_only_rename", "download_residue_or_shortcut", "empty_file", "advertising_text_or_html_file", "custom_junk_keyword", "requires_review", "partial_success", "rollback_partial", "interrupted", "abandoned", "invalid", "unrecognized_filename_text", "configured_part_suffix_removal", "configured_variant_removal", "large_temp_file_requires_manual_selection", "operation_interrupted"].includes(raw)) {
     return "warning";
   }
   return "info";
@@ -1097,12 +1144,20 @@ function hasBlocking(item) {
   return Boolean(item?.blocking) || (item?.issues || []).some((issue) => issue.blocking);
 }
 
-function hasWarningOnly(item) {
-  return (item.issues || []).length > 0 && !hasBlocking(item);
+function hasWarning(item) {
+  return (item.warnings || []).length > 0 || (item.issues || []).some((issue) => !issue.blocking);
 }
 
 function executableAction(item) {
   return ["rename", "quarantine"].includes(String(item?.action || item?.operation || ""));
+}
+
+function safeSelectable(item) {
+  return !hasBlocking(item)
+    && !item.requires_review
+    && !item.sidecar_type
+    && executableAction(item)
+    && !(item.warnings || []).includes("large_temp_file_requires_manual_selection");
 }
 
 function selectedExecutableItems(plan = state.plan) {
@@ -1174,9 +1229,9 @@ function filteredItems() {
   };
   let items = (state.plan?.items || []).filter(matchesSearch);
   if (state.filter === "selected") return items.filter((item) => item.selected);
-  if (state.filter === "safe_selectable") return items.filter((item) => !hasBlocking(item) && !item.requires_review && !item.sidecar_type && executableAction(item));
+  if (state.filter === "safe_selectable") return items.filter(safeSelectable);
   if (state.filter === "blocking") return items.filter(hasBlocking);
-  if (state.filter === "warning") return items.filter(hasWarningOnly);
+  if (state.filter === "warning") return items.filter(hasWarning);
   if (state.filter === "requires_review") return items.filter((item) => item.requires_review);
   if (state.filter === "conflict") return items.filter((item) => (item.review_buckets || []).includes("conflict"));
   if (state.filter === "sidecar") return items.filter((item) => item.sidecar_type);
@@ -1190,9 +1245,9 @@ function filterCounts() {
   return {
     all: items.length,
     selected: items.filter((item) => item.selected).length,
-    safe_selectable: items.filter((item) => !hasBlocking(item) && !item.requires_review && !item.sidecar_type && executableAction(item)).length,
+    safe_selectable: items.filter(safeSelectable).length,
     blocking: items.filter(hasBlocking).length,
-    warning: items.filter(hasWarningOnly).length,
+    warning: items.filter(hasWarning).length,
     requires_review: items.filter((item) => item.requires_review).length,
     conflict: items.filter((item) => (item.review_buckets || []).includes("conflict")).length,
     sidecar: items.filter((item) => item.sidecar_type).length,
@@ -1254,7 +1309,7 @@ function updateSummary() {
     sidecar: summary.sidecar_items ?? items.filter((item) => item.sidecar_type).length,
     selected: summary.selected_items ?? items.filter((item) => item.selected).length,
     blocking,
-    warning: summary.warning_items ?? items.filter(hasWarningOnly).length,
+    warning: summary.warning_items ?? items.filter(hasWarning).length,
     "requires-review": summary.requires_review_items ?? items.filter((item) => item.requires_review).length,
     manual: summary.manual_edited_items ?? items.filter((item) => item.manual_edited).length,
   };
@@ -1264,7 +1319,7 @@ function updateSummary() {
   setText("#metricSidecar", summary.sidecar_items ?? items.filter((item) => item.sidecar_type).length);
   setText("#metricSelected", summary.selected_items ?? items.filter((item) => item.selected).length);
   setText("#metricBlocking", blocking);
-  setText("#metricWarning", summary.warning_items ?? items.filter(hasWarningOnly).length);
+  setText("#metricWarning", summary.warning_items ?? items.filter(hasWarning).length);
   setText("#metricReview", summary.requires_review_items ?? items.filter((item) => item.requires_review).length);
   setText("#metricManual", summary.manual_edited_items ?? items.filter((item) => item.manual_edited).length);
   setCompactText("#scanId", state.scan?.scan_id || "-");
@@ -1278,7 +1333,7 @@ function updateSummary() {
   setText("#executionPillRename", summary.rename_items ?? items.filter((item) => item.action === "rename").length);
   setText("#executionPillQuarantine", summary.quarantine_items ?? items.filter((item) => item.action === "quarantine").length);
   setText("#executionPillSkip", items.filter((item) => !item.selected || !executableAction(item)).length);
-  setText("#executionPillWarning", summary.warning_items ?? items.filter(hasWarningOnly).length);
+  setText("#executionPillWarning", summary.warning_items ?? items.filter(hasWarning).length);
   setText("#currentMode", state.diagnostics?.summary?.runtime_mode || state.diagnostics?.runtime?.mode || "-");
   setText("#statusRuleVersion", state.settings?.rules?.ruleset_version || state.capabilities?.ruleset_version || "v1");
   const llm = state.settings?.llm || {};
@@ -1453,7 +1508,7 @@ function renderProcessSummary(item) {
 
 function renderRiskHint(item) {
   const codes = issueCodes(item);
-  if (codes.length || hasBlocking(item) || hasWarningOnly(item) || item.requires_review) {
+  if (codes.length || hasBlocking(item) || hasWarning(item) || item.requires_review) {
     return renderIssueSummary(item);
   }
   const span = document.createElement("span");
@@ -1703,7 +1758,7 @@ function debugDetailsNode(item) {
   debugList.append(
     detailLine("内部 ID", `item=${item.id || "-"} / scan_item=${item.scan_item_id || "-"}`),
     detailLine("原始代码", issueCodes(item).join("；") || "-"),
-    detailLine("校验状态", hasBlocking(item) ? "阻止" : hasWarningOnly(item) ? "警告" : "通过"),
+    detailLine("校验状态", hasBlocking(item) ? "阻止" : hasWarning(item) ? "警告" : "通过"),
     detailLine("Trace 摘要", traceSummary(item)),
     detailLine("source_path", item.source_path || "-"),
     detailLine("target_path", item.target_path || "-")
@@ -1779,7 +1834,7 @@ function renderDetailDrawer() {
   const handling = document.createElement("div");
   handling.className = "detail-list";
   handling.append(
-    detailLine("状态", [friendlyAction(item.action || item.operation), hasBlocking(item) ? "阻止" : hasWarningOnly(item) ? "警告" : "可处理"].join(" / ")),
+    detailLine("状态", [friendlyAction(item.action || item.operation), hasBlocking(item) ? "阻止" : hasWarning(item) ? "警告" : "可处理"].join(" / ")),
     detailLine("来源", SOURCE_LABELS[previewSource(item)] || friendlySource(item.source || item.suggestion_source) || "-"),
     detailLine("摘要", processSummaryText(item), item.reason || "")
   );
@@ -2861,8 +2916,9 @@ function renderExecutionConfirm(summary) {
   setText("#executionConfirmRename", summary.rename_count ?? 0);
   setText("#executionConfirmQuarantine", summary.quarantine_count ?? 0);
   setText("#executionConfirmBlocking", summary.blocking_count ?? 0);
+  const warningCount = summary.warning_count ?? 0;
   setText("#executionConfirmMessage", summary.ok_to_execute
-    ? "确认后才会真正改名或隔离文件。执行仍由后端计划和 plan_hash 校验。"
+    ? `${warningCount ? `其中 ${warningCount} 项带有警告，请先核对。` : ""}确认后才会真正改名或隔离文件。执行仍由后端计划和 plan_hash 校验。`
     : "当前摘要存在阻止项，不能执行。");
 }
 

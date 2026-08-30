@@ -84,7 +84,16 @@ def test_accept_updates_plan_item_but_does_not_execute_or_select(tmp_path: Path,
     assert body["item"]["source"] == "llm"
     assert body["item"]["llm_accepted"] is True
     assert body["item"]["selected"] is False
+    assert body["item"]["requires_review"] is False
+    assert body["item"]["selection_locked"] is False
     assert body["item"]["trace"][-1]["rule_id"] == "llm_accept"
+    selection = client.patch(
+        f"/api/plans/{plan['plan_id']}/selection",
+        headers=auth_headers,
+        json={"selected_item_ids": [item["id"]], "mode": "replace"},
+    )
+    assert selection.status_code == 200
+    assert selection.json()["selected_item_ids"] == [item["id"]]
     assert run_count() == before_runs
 
 

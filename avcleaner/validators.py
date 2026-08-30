@@ -181,7 +181,13 @@ def validate_plan_items(root_path: str | Path, items: list[PlanItem], long_path_
         requires_review = item.requires_review or any(problem.blocking for problem in issues)
         checked = item.checked and not any(problem.blocking for problem in issues)
         requires_two_step = item.requires_two_step or any(problem.code == IssueCode.CASE_ONLY_RENAME for problem in issues)
-        warnings = [str(problem.code) for problem in issues]
+        previous_issue_codes = {str(problem.code) for problem in item.issues}
+        rule_warnings = [warning for warning in item.warnings if warning not in previous_issue_codes]
+        warnings = list(
+            dict.fromkeys(
+                [*rule_warnings, *(str(problem.code) for problem in issues if not problem.blocking)]
+            )
+        )
         validated.append(
             item.model_copy(
                 update={

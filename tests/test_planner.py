@@ -7,8 +7,9 @@ from pydantic import ValidationError
 
 from conftest import make_file
 
-from avcleaner.enums import IssueCode, Operation
-from avcleaner.models import PlanRequest, ScanRequest
+from avcleaner.enums import IssueCode, Operation, RunState
+from avcleaner.executor import execute_plan_by_id
+from avcleaner.models import PlanExecuteRequest, PlanRequest, ScanRequest
 from avcleaner.planner import create_plan, patch_plan_item, validate_stored_plan
 from avcleaner.repository import create_scan, get_plan
 from avcleaner.scanner import scan_files
@@ -52,6 +53,32 @@ def test_manual_patch_changes_hash(tmp_path: Path) -> None:
 
     assert patched.plan_hash != plan.plan_hash
     assert patched.item.source == "manual"
+
+
+def test_manual_patch_unlocks_review_item_for_execution(tmp_path: Path) -> None:
+    source = make_file(tmp_path, "Sample ABP-123.mp4", b"video")
+    scan = persisted_scan(tmp_path)
+    plan = create_plan(PlanRequest(scan_id=scan.scan_id))
+    item = plan.items[0]
+
+    assert item.requires_review
+    assert "unrecognized_filename_text" in item.warnings
+
+    patched = patch_plan_item(plan.plan_id, item.id, "ABP-123.mp4")
+
+    assert not patched.item.requires_review
+    assert not patched.item.selection_locked
+    assert patched.item.selected
+    assert "unrecognized_filename_text" in patched.item.warnings
+
+    executed = execute_plan_by_id(
+        plan.plan_id,
+        PlanExecuteRequest(selected_item_ids=[item.id], confirm=True, plan_hash=patched.plan_hash),
+    )
+
+    assert executed.state == RunState.SUCCESS
+    assert not source.exists()
+    assert (tmp_path / "ABP-123.mp4").exists()
 
 
 def test_duplicate_targets_are_blocked_not_cd_suffixed(tmp_path: Path) -> None:

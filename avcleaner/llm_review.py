@@ -674,6 +674,7 @@ def accept_llm_suggestion(plan_id: str, suggestion_id: str, request: LLMSuggesti
                     "suggestion_source": SuggestionSource.LLM,
                     "action": Operation.RENAME,
                     "operation": Operation.RENAME,
+                    "requires_review": False,
                     "manual_edited": True,
                     "last_edited_at": now,
                     "llm_accepted": True,

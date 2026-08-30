@@ -53,6 +53,15 @@ def test_common_gui_reason_codes_have_frontend_explanations() -> None:
         "sidecar_default_off",
         "blocking",
         "not_executable",
+        "large_temp_file_requires_manual_selection",
+        "unrecognized_filename_text",
+        "configured_part_suffix_removal",
+        "configured_variant_removal",
+        "quarantine_inside_scan_root",
+        "quarantine_recovery_required",
+        "quarantine_recovered",
+        "rollback_recovered",
+        "operation_interrupted",
     ]
 
     missing = [code for code in reason_codes if not _has_entry(text, code)]

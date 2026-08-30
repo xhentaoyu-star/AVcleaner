@@ -56,10 +56,13 @@ def _validate_extension_list(values: list[str], *, allow_empty: bool = False) ->
 def _validate_output_template(value: str) -> str:
     allowed = {"code", "part", "variant", "language", "ext"}
     try:
-        fields = [field_name for _, field_name, _, _ in string.Formatter().parse(value) if field_name]
+        parsed = list(string.Formatter().parse(value))
     except ValueError as exc:
         raise _settings_error("rule_settings_invalid_template") from exc
+    fields = [field_name for _, field_name, _, _ in parsed if field_name]
     if len(fields) != len(allowed) or set(fields) != allowed:
+        raise _settings_error("rule_settings_invalid_template")
+    if any(format_spec or conversion is not None for _, field_name, format_spec, conversion in parsed if field_name):
         raise _settings_error("rule_settings_invalid_template")
     if any(char in value for char in "\\/:*?\"<>|\x00"):
         raise _settings_error("rule_settings_invalid_template")
@@ -193,6 +196,9 @@ class RuleSettings(StrictModel):
     def validate_sidecar_language_policy(self) -> "RuleSettings":
         if not self.preserve_sidecar_language:
             raise _settings_error("rule_settings_sidecar_language_required")
+        sidecar_extensions = {extension for extensions in self.sidecar_extensions.values() for extension in extensions}
+        if set(self.junk_extensions) & (set(self.video_extensions) | sidecar_extensions):
+            raise _settings_error("rule_settings_extension_role_conflict")
         return self
 
 
@@ -256,6 +262,15 @@ class AppSettings(StrictModel):
         if "\x00" in cleaned or any(ord(char) < 32 for char in cleaned):
             raise _settings_error("settings_invalid_quarantine_dir")
         return cleaned
+
+    @model_validator(mode="after")
+    def validate_extension_roles(self) -> "AppSettings":
+        scan_content_extensions = (
+            VIDEO_EXTENSIONS | SIDECAR_EXTENSIONS | set(self.video_extensions) | set(self.sidecar_extensions)
+        )
+        if set(self.rules.junk_extensions) & scan_content_extensions:
+            raise _settings_error("rule_settings_extension_role_conflict")
+        return self
 
 
 class FileSnapshot(StrictModel):
@@ -875,8 +890,12 @@ class QuarantineManifest(StrictModel):
     original_abs_path: str
     original_rel_path: str
     quarantine_abs_path: str
+    copy_temp_abs_path: str = ""
+    copy_temp_owned: bool = False
+    restore_copy_temp_abs_path: str = ""
+    restore_copy_temp_owned: bool = False
     size: int
     created_ns: int
     modified_ns: int
     reason: str
-    restore_status: Literal["available", "restored", "conflict", "missing"] = "available"
+    restore_status: Literal["pending", "available", "restored", "restore_failed", "conflict", "missing"] = "available"

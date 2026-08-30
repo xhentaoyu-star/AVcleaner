@@ -41,3 +41,23 @@ def test_preview_table_keeps_review_data_available() -> None:
     assert "llm_reason" in text
     assert "JSON.stringify(item" in text
     assert "cellLlmSuggestion" not in text
+
+
+def test_warning_summary_includes_item_warnings() -> None:
+    text = APP_JS.read_text(encoding="utf-8")
+    start = text.index("function hasWarning")
+    snippet = text[start : text.index("function executableAction", start)]
+
+    assert "item.warnings" in snippet
+    assert "!hasBlocking(item)" not in snippet
+    assert "!issue.blocking" in snippet
+
+
+def test_safe_selectable_excludes_large_temp_manual_selection_warning() -> None:
+    text = APP_JS.read_text(encoding="utf-8")
+
+    assert "function safeSelectable" in text
+    start = text.index("function safeSelectable")
+    snippet = text[start : text.index("function filteredItems", start)]
+    assert "large_temp_file_requires_manual_selection" in snippet
+    assert "items.filter(safeSelectable)" in text

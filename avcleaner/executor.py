@@ -11,7 +11,7 @@ from .errors import AppError
 from .execution_progress import complete_item, finish_progress, start_item, start_progress, update_file_progress, update_progress
 from .models import ExecuteRequest, ExecuteResponse, ExecutionItem, ExecutionRun, OperationRecord, PlanExecuteRequest
 from .planner import validate_stored_plan
-from .quarantine import QuarantinePathError, QuarantineRecoveryRequired, move_file_verified, quarantine_item
+from .quarantine import QuarantinePathError, QuarantineRecoveryRequired, copy_temp_path_for, move_file_verified, quarantine_item
 from .recovery import ROLLBACK_TARGET_EXISTS, build_rollback_preview, is_rollbackable_item
 from .repository import (
     create_run,
@@ -21,6 +21,8 @@ from .repository import (
     summarize_item_states,
     update_run_item_rollback_status,
     update_plan_state,
+    update_quarantine_manifest_restore_copy_temp_path,
+    update_quarantine_manifest_restore_copy_temp_owned,
     update_quarantine_manifest_restore_status,
     update_run_state,
     upsert_run_item,
@@ -334,14 +336,26 @@ def rollback_run(run_id: str, item_ids: list[str] | None = None) -> ExecuteRespo
             target = Path(source_item.source_path).resolve(strict=False)
             try:
                 target.parent.mkdir(parents=True, exist_ok=True)
-                if source_item.state == RunItemState.QUARANTINED:
-                    move_file_verified(source, target)
+                if source_item.operation == Operation.QUARANTINE:
+                    update_quarantine_manifest_restore_copy_temp_path(
+                        run_id,
+                        source_item.plan_item_id,
+                        str(copy_temp_path_for(target)),
+                    )
+                    move_file_verified(
+                        source,
+                        target,
+                        temp_created_callback=lambda: update_quarantine_manifest_restore_copy_temp_owned(
+                            run_id,
+                            source_item.plan_item_id,
+                        ),
+                    )
                 else:
                     shutil.move(str(source), str(target))
             except Exception as exc:
                 error_code = _operation_failure_code(exc)
                 manifest_status_synced = True
-                if source_item.state == RunItemState.QUARANTINED:
+                if source_item.operation == Operation.QUARANTINE:
                     manifest_status_synced = _sync_quarantine_restore_status(run_id, source_item.plan_item_id, "restore_failed")
                 rollback_item = rollback_item.model_copy(
                     update={
@@ -355,7 +369,7 @@ def rollback_run(run_id: str, item_ids: list[str] | None = None) -> ExecuteRespo
                 update_run_item_rollback_status(source_item.id, str(RunItemState.ROLLBACK_FAILED), error_code)
             else:
                 manifest_status_synced = True
-                if source_item.state == RunItemState.QUARANTINED:
+                if source_item.operation == Operation.QUARANTINE:
                     manifest_status_synced = _sync_quarantine_restore_status(run_id, source_item.plan_item_id, "restored")
                 rollback_item = rollback_item.model_copy(
                     update={

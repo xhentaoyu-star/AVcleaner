@@ -114,6 +114,15 @@ def test_large_temp_quarantine_requires_explicit_selection_and_can_execute(
     assert selected_item["selected"] is True
     assert "large_temp_file_requires_manual_selection" in selected_item["warnings"]
 
+    summary = client.post(
+        f"/api/plans/{plan['plan_id']}/execution-summary",
+        headers=auth_headers,
+        json={"selected_item_ids": [item["id"]], "plan_hash": selected_plan["plan_hash"]},
+    )
+
+    assert summary.status_code == 200
+    assert summary.json()["warning_count"] == 1
+
     execute = client.post(
         f"/api/plans/{plan['plan_id']}/execute",
         headers=auth_headers,
