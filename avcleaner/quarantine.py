@@ -155,7 +155,7 @@ def _copy_then_delete_verified(
         raise
 
 
-def _move_file_with_progress(source: Path, target: Path, progress_callback: ProgressCallback | None = None) -> None:
+def move_file_verified(source: Path, target: Path, progress_callback: ProgressCallback | None = None) -> None:
     total = source.stat().st_size
     if target.exists():
         raise FileExistsError(target)
@@ -185,7 +185,7 @@ def quarantine_item(
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         target = target.with_name(f"{target.stem}__duplicate_{run_id[:8]}{target.suffix}")
-    _move_file_with_progress(source, target, progress_callback)
+    move_file_verified(source, target, progress_callback)
     snapshot = item.snapshot
     manifest = QuarantineManifest(
         run_id=run_id,
@@ -203,7 +203,7 @@ def quarantine_item(
         save_quarantine_manifest(manifest)
     except Exception:
         try:
-            _move_file_with_progress(target, source)
+            move_file_verified(target, source)
         except Exception as recovery_error:
             raise QuarantineRecoveryRequired(target) from recovery_error
         raise

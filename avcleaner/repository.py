@@ -592,6 +592,27 @@ def save_quarantine_manifest(manifest: QuarantineManifest) -> None:
         conn.commit()
 
 
+def update_quarantine_manifest_restore_status(run_id: str, item_id: str, restore_status: str) -> None:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT manifest_json FROM quarantine_manifests WHERE run_id = ? AND item_id = ?",
+            (run_id, item_id),
+        ).fetchone()
+        if row is None:
+            return
+        payload = loads(row["manifest_json"])
+        payload["restore_status"] = restore_status
+        conn.execute(
+            """
+            UPDATE quarantine_manifests
+            SET restore_status = ?, manifest_json = ?
+            WHERE run_id = ? AND item_id = ?
+            """,
+            (restore_status, dumps(payload), run_id, item_id),
+        )
+        conn.commit()
+
+
 def create_llm_suggestion(record: LLMSuggestionRecord) -> LLMSuggestionRecord:
     with connect() as conn:
         conn.execute(

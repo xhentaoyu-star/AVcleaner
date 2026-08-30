@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+import json
 from pathlib import Path
 
 import pytest
@@ -9,7 +10,7 @@ from conftest import make_file
 
 from avcleaner.database import connect
 from avcleaner.models import PlanExecuteRequest, PlanRequest, ScanRequest
-from avcleaner.executor import execute_plan_by_id
+from avcleaner.executor import execute_plan_by_id, rollback_run
 from avcleaner.planner import create_plan
 from avcleaner.repository import create_scan
 from avcleaner.scanner import scan_files
@@ -100,6 +101,29 @@ def test_quarantine_inside_scan_root_is_blocked_without_moving_source(tmp_path: 
     assert run_item.issue_code == "quarantine_inside_scan_root"
     assert source.read_bytes() == b"[InternetShortcut]"
     assert not quarantine_root.exists()
+
+
+def test_successful_quarantine_rollback_updates_manifest_status(tmp_path: Path) -> None:
+    source_root = tmp_path / "source"
+    source = make_file(source_root, "ad.url", b"[InternetShortcut]")
+    scan = create_scan(ScanRequest(root_path=str(source_root)), scan_files(ScanRequest(root_path=str(source_root))))
+    plan = create_plan(PlanRequest(scan_id=scan.scan_id))
+    executed = execute_plan_by_id(
+        plan.plan_id,
+        PlanExecuteRequest(selected_item_ids=[plan.items[0].id], confirm=True, plan_hash=plan.plan_hash),
+    )
+
+    rollback = rollback_run(executed.run_id)
+
+    assert rollback.state == "rolled_back"
+    assert source.exists()
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT restore_status, manifest_json FROM quarantine_manifests WHERE run_id = ?",
+            (executed.run_id,),
+        ).fetchone()
+    assert row["restore_status"] == "restored"
+    assert json.loads(row["manifest_json"])["restore_status"] == "restored"
 
 
 def test_quarantine_reports_move_progress(tmp_path: Path) -> None:
