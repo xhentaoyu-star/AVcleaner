@@ -85,6 +85,17 @@ def test_plan_csv_export_has_practical_columns(tmp_path: Path, client, auth_head
     ]
 
 
+def test_plan_csv_export_neutralizes_spreadsheet_formulas(tmp_path: Path, client, auth_headers: dict[str, str]) -> None:
+    make_file(tmp_path, "=2+2.mp4")
+    plan = create_plan(client, auth_headers, tmp_path)
+
+    response = client.get(f"/api/plans/{plan['plan_id']}/export.csv", headers=auth_headers)
+
+    assert response.status_code == 200
+    row = next(csv.DictReader(io.StringIO(response.text)))
+    assert row["original_name"] == "'=2+2.mp4"
+
+
 def test_plan_export_unknown_plan_returns_stable_code(client, auth_headers: dict[str, str]) -> None:
     response = client.get("/api/plans/not-real/export.json", headers=auth_headers)
 

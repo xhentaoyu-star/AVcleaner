@@ -3,6 +3,8 @@ from __future__ import annotations
 import csv
 import io
 from pathlib import Path
+
+from .csv_export import safe_csv_row
 from typing import Iterable
 
 from .enums import Operation, RunItemState, RunState
@@ -340,7 +342,7 @@ def export_run_csv(run_id: str) -> str:
     writer.writeheader()
     for item in detail["items"]:
         writer.writerow(
-            {
+            safe_csv_row({
                 "run_id": detail["run_id"],
                 "item_id": item["item_id"],
                 "operation": item["operation"],
@@ -358,6 +360,6 @@ def export_run_csv(run_id: str) -> str:
                 "size": item["size"],
                 "manual_edited": str(item["manual_edited"]).lower(),
                 "llm_accepted": str(item["llm_accepted"]).lower(),
-            }
+            })
         )
     return output.getvalue()

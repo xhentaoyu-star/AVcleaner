@@ -6,6 +6,7 @@ import io
 from collections import Counter
 from pathlib import Path
 
+from .csv_export import safe_csv_row
 from .database import dumps, utc_now_iso
 from .enums import IssueCode, Operation, PlanState, SuggestionSource
 from .errors import AppError
@@ -621,7 +622,7 @@ def export_plan_csv(plan_id: str) -> str:
     writer.writeheader()
     for item in items:
         writer.writerow(
-            {
+            safe_csv_row({
                 "item_id": item.id,
                 "operation": str(item.operation or item.action),
                 "selected": str(item.selected).lower(),
@@ -638,6 +639,6 @@ def export_plan_csv(plan_id: str) -> str:
                 "confidence": f"{item.confidence:.6f}",
                 "requires_review": str(item.requires_review).lower(),
                 "manual_edited": str(item.manual_edited).lower(),
-            }
+            })
         )
     return output.getvalue()
