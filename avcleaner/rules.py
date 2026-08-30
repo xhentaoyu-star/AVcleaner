@@ -154,10 +154,19 @@ def _collapse_separators(value: str) -> str:
 def _replace_with_space(text: str, matches: list[re.Match[str]]) -> str:
     if not matches:
         return text
-    result = text
-    for match in sorted(matches, key=lambda item: item.start(), reverse=True):
-        result = result[: match.start()] + " " + result[match.end() :]
-    return _collapse_separators(result)
+    spans: list[tuple[int, int]] = []
+    for start, end in sorted((match.start(), match.end()) for match in matches):
+        if spans and start <= spans[-1][1]:
+            spans[-1] = (spans[-1][0], max(spans[-1][1], end))
+        else:
+            spans.append((start, end))
+    parts: list[str] = []
+    cursor = 0
+    for start, end in spans:
+        parts.extend((text[cursor:start], " "))
+        cursor = end
+    parts.append(text[cursor:])
+    return _collapse_separators("".join(parts))
 
 
 def _custom_domain_regexes(domains: list[str]) -> list[re.Pattern[str]]:
@@ -427,8 +436,15 @@ def suggest_name_with_trace(filename: str, settings: RuleConfig | None = None) -
     )
     if chosen.raw_code != render_code and _rule_enabled(settings, "normalize_media_code"):
         trace.append(_step("normalize_media_code", chosen.raw_code, render_code, preserved_tokens=[render_code]))
-    part_suffix = chosen.part_suffix if settings.preserve_part_suffix and settings.keep_part_suffix else ""
-    segment_suffix = chosen.variant if _is_segment_suffix(chosen.variant) and settings.preserve_part_suffix and settings.keep_part_suffix else ""
+    preserve_part = settings.preserve_part_suffix and settings.keep_part_suffix
+    if chosen.part_suffix and not preserve_part:
+        warnings.append("configured_part_suffix_removal")
+    if _is_segment_suffix(chosen.variant) and not preserve_part:
+        warnings.append("configured_part_suffix_removal")
+    if chosen.variant and not _is_segment_suffix(chosen.variant) and not settings.preserve_variant:
+        warnings.append("configured_variant_removal")
+    part_suffix = chosen.part_suffix if preserve_part else ""
+    segment_suffix = chosen.variant if _is_segment_suffix(chosen.variant) and preserve_part else ""
     variant = "" if segment_suffix else (chosen.variant if settings.preserve_variant else "")
     template_variant = f"{segment_suffix}{variant}"
     if preserve_compact_variant and template_variant:

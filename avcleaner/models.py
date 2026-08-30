@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import string
 from typing import Any, Literal
 
@@ -8,6 +9,11 @@ from pydantic_core import PydanticCustomError
 
 from .constants import JUNK_EXTENSIONS, RULE_TRACE_IDS, SIDECAR_EXTENSIONS, VIDEO_EXTENSIONS
 from .enums import IssueCode, IssueSeverity, Operation, PlanState, RunItemState, RunState, SuggestionSource
+
+
+CUSTOM_AD_DOMAIN_RE = re.compile(
+    r"(?i)^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{2,59})$"
+)
 
 
 class StrictModel(BaseModel):
@@ -53,7 +59,7 @@ def _validate_output_template(value: str) -> str:
         fields = [field_name for _, field_name, _, _ in string.Formatter().parse(value) if field_name]
     except ValueError as exc:
         raise _settings_error("rule_settings_invalid_template") from exc
-    if not fields or "code" not in fields or any(field not in allowed for field in fields):
+    if len(fields) != len(allowed) or set(fields) != allowed:
         raise _settings_error("rule_settings_invalid_template")
     if any(char in value for char in "\\/:*?\"<>|\x00"):
         raise _settings_error("rule_settings_invalid_template")
@@ -139,7 +145,7 @@ class RuleSettings(StrictModel):
             value = raw.strip().lower()
             if not value:
                 continue
-            if any(char in value for char in "\\/\x00") or any(ord(char) < 32 for char in value):
+            if not CUSTOM_AD_DOMAIN_RE.fullmatch(value):
                 raise _settings_error("rule_settings_invalid_ad_domain")
             if value not in seen:
                 seen.add(value)
@@ -155,6 +161,14 @@ class RuleSettings(StrictModel):
             value = raw.strip()
             if not value:
                 continue
+            if (
+                len(value) < 2
+                or len(value) > 80
+                or value.isdecimal()
+                or any(char in value for char in "\\/\x00")
+                or any(ord(char) < 32 for char in value)
+            ):
+                raise _settings_error("rule_settings_invalid_remove_token")
             key = value.lower()
             if key not in seen:
                 seen.add(key)
