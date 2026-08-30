@@ -134,7 +134,7 @@ function Assert-RollbackOperationPaths($Operations, [string]$ScanRoot, [string]$
 
 function Add-SmokeFiles([string]$ScanRoot, [bool]$ForExecution) {
   if ($ForExecution) {
-    Set-Content -LiteralPath (Join-Path $ScanRoot "[ads.example] ABP123.mp4") -Value "video"
+    Set-Content -LiteralPath (Join-Path $ScanRoot "[ads.example.com] ABP123.mp4") -Value "video"
     Set-Content -LiteralPath (Join-Path $ScanRoot "junk.url") -Value "[InternetShortcut]"
     Set-Content -LiteralPath (Join-Path $ScanRoot "ABP-123.zh.srt") -Value "subtitle"
   } else {
@@ -165,7 +165,7 @@ function Invoke-TempExecutionSmoke($Base, $Headers, $Plan, [string]$ScanRoot, [s
   if (-not $summary.ok_to_execute) { Write-Error "Execution summary rejected temp smoke selection." }
   if ($summary.sidecar_count -ne 0) { Write-Error "Execution summary included sidecar execution unexpectedly." }
 
-  $originalVideo = Join-Path $ScanRoot "[ads.example] ABP123.mp4"
+  $originalVideo = Join-Path $ScanRoot "[ads.example.com] ABP123.mp4"
   $renamedVideo = Join-Path $ScanRoot "ABP-123.mp4"
   $junk = Join-Path $ScanRoot "junk.url"
   $sidecarPath = Join-Path $ScanRoot "ABP-123.zh.srt"

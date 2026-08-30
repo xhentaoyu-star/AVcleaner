@@ -12,7 +12,7 @@ def test_smoke_packaged_temp_execution_is_opt_in_and_temp_only() -> None:
     assert "[switch]$RunTempExecution" in text
     assert "avcleaner-smoke-" in text
     assert "Set-Content" in text
-    assert "[ads.example] ABP123.mp4" in text
+    assert "[ads.example.com] ABP123.mp4" in text
     assert "junk.url" in text
     assert "ABP-123.zh.srt" in text
     assert "if ($RunTempExecution)" in text
