@@ -148,7 +148,7 @@ def test_ai_preview_splits_bad_batch_and_keeps_successful_items(
             suggestions=[
                 LLMSuggestion(
                     item_id=item.id,
-                    suggested_name=f"{item.media_code}-AI.mp4",
+                    suggested_name=f"{item.media_code.lower()}.mp4",
                     media_code=item.media_code,
                     confidence=0.93,
                     reason="mock",

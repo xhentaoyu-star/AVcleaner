@@ -40,12 +40,14 @@ def test_prompt_injection_filename_is_sent_as_data_not_path(
     configure_mock_llm(client, auth_headers)
     plan = create_plan(client, auth_headers, tmp_path)
     item = plan["items"][0]
+    safe_code = item["media_code"] or "ABP-123"
+    safe_name = f"{safe_code}{item['part_suffix']}{item['variant']}.mp4"
 
     async def fake_suggest(request, _settings):
         assert request.items[0].name == filename
         assert request.items[0].path is None
         return LLMBatchResponse(
-            suggestions=[LLMSuggestion(item_id=item["id"], suggested_name="ABP-123.mp4", media_code="ABP-123", confidence=0.9)]
+            suggestions=[LLMSuggestion(item_id=item["id"], suggested_name=safe_name, media_code=safe_code, confidence=0.9)]
         )
 
     monkeypatch.setattr("avcleaner.llm.suggest_with_llm", fake_suggest)

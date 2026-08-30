@@ -31,9 +31,8 @@ def test_ai_preview_applies_valid_suggestion_to_preview_only(
             suggestions=[
                 LLMSuggestion(
                     item_id=request.items[0].id,
-                    suggested_name="ABP-123-A.mp4",
+                    suggested_name="abp-123.mp4",
                     media_code="ABP-123",
-                    variant="-A",
                     confidence=0.92,
                     reason="mock",
                 )
@@ -50,12 +49,12 @@ def test_ai_preview_applies_valid_suggestion_to_preview_only(
 
     assert response.status_code == 200
     item = response.json()["plan"]["items"][0]
-    assert item["target_name"] == "ABP-123-A.mp4"
+    assert item["target_name"] == "abp-123.mp4"
     assert item["source"] == "llm"
     assert item["llm_state"] == "applied_to_preview"
     assert item["manual_edited"] is False
     assert source.exists()
-    assert not (tmp_path / "ABP-123-A.mp4").exists()
+    assert not (tmp_path / "abp-123.mp4").exists()
 
 
 def test_ai_preview_capability_visible_when_llm_configured(client, auth_headers: dict[str, str]) -> None:

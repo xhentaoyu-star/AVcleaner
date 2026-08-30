@@ -52,6 +52,8 @@ def test_prompt_injection_like_filenames_are_sent_as_untrusted_data(
     configure_mock_llm(client, auth_headers)
     plan = create_plan(client, auth_headers, tmp_path)
     item = plan["items"][0]
+    safe_code = item["media_code"] or "ABP-123"
+    safe_name = f"{safe_code}{item['part_suffix']}{item['variant']}.mp4"
     before_plans = table_count("plans")
 
     async def fake_suggest(request, _settings):
@@ -64,8 +66,8 @@ def test_prompt_injection_like_filenames_are_sent_as_untrusted_data(
             suggestions=[
                 LLMSuggestion(
                     item_id=item["id"],
-                    suggested_name="ABP-123.mp4",
-                    media_code="ABP-123",
+                    suggested_name=safe_name,
+                    media_code=safe_code,
                     confidence=0.9,
                     reason="mock",
                 )
