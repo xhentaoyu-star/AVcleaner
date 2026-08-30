@@ -346,13 +346,7 @@ def plan_item_from_scan(plan_id: str, root: Path, item: ScanItem, rules: RuleCon
 
 
 def create_plan(request: PlanRequest) -> PlanRecord:
-    if request.scan_id:
-        scan = get_scan(request.scan_id)
-    elif request.files and request.root_path:
-        scan = type("LegacyScan", (), {"scan_id": "", "root_path": request.root_path, "files": request.files})()
-    else:
-        raise ValueError("scan_id_required")
-
+    scan = get_scan(request.scan_id)
     plan_id = new_id("plan")
     root = Path(scan.root_path).resolve(strict=False)
     items = [
@@ -372,9 +366,7 @@ def create_plan(request: PlanRequest) -> PlanRecord:
         items=items,
         preview_mode=request.preview_mode,
     )
-    if scan.scan_id:
-        return save_plan(record, request.rules.model_dump(mode="json"))
-    return record
+    return save_plan(record, request.rules.model_dump(mode="json"))
 
 
 def response_from_record(record: PlanRecord) -> PlanResponse:

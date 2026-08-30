@@ -4,8 +4,10 @@ from pathlib import Path
 
 from conftest import make_file
 
-from avcleaner.models import PlanRequest, ScanItem
+from avcleaner.models import PlanRequest, ScanRequest
 from avcleaner.planner import create_plan
+from avcleaner.repository import create_scan
+from avcleaner.scanner import scan_files
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,20 +33,10 @@ def test_quarantine_page_documents_non_permanent_delete() -> None:
 
 
 def test_backend_quarantine_rule_for_download_residue_is_unchanged(tmp_path: Path) -> None:
-    source = make_file(tmp_path, "movie.torrent", b"torrent")
-    item = ScanItem(
-        id="item-1",
-        path=str(source),
-        relative_path=source.name,
-        name=source.name,
-        stem=source.stem,
-        extension=source.suffix,
-        size=source.stat().st_size,
-        mtime=source.stat().st_mtime,
-        kind="junk",
-    )
-
-    plan = create_plan(PlanRequest(root_path=str(tmp_path), files=[item]))
+    make_file(tmp_path, "movie.torrent", b"torrent")
+    request = ScanRequest(root_path=str(tmp_path))
+    scan = create_scan(request, scan_files(request))
+    plan = create_plan(PlanRequest(scan_id=scan.scan_id))
 
     assert plan.items[0].action == "quarantine"
     assert plan.items[0].reason == "download_residue_or_shortcut"

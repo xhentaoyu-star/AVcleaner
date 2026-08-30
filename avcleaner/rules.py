@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -16,11 +15,9 @@ from .constants import (
     RULE_TRACE_IDS,
     SIDECAR_EXTENSIONS,
     TEXT_JUNK_EXTENSIONS,
-    VIDEO_EXTENSIONS,
 )
-from .models import FileItem, PlanItem, PlanRequest, PlanResponse, RuleConfig, RuleSuggestion, RuleTraceStep
+from .models import FileItem, RuleConfig, RuleSuggestion, RuleTraceStep
 from .paths import normalize_extension
-from .scanner import file_id
 from .sidecars import classify_sidecar_type, split_subtitle_language_suffix
 
 
@@ -556,165 +553,3 @@ def is_junk_file(item: FileItem, custom_keywords: list[str], trash_zero_byte: bo
 
 def large_temp_junk_requires_review(item: FileItem) -> bool:
     return normalize_extension(item.extension) in LARGE_TEMP_JUNK_EXTENSIONS and item.size >= LARGE_TEMP_JUNK_REVIEW_BYTES
-
-
-def build_suggested_name(code_info: CodeInfo, extension: str) -> str:
-    return f"{code_info.code}{code_info.part_suffix}{code_info.variant}{extension.lower()}"
-
-
-def build_plan(request: PlanRequest) -> PlanResponse:
-    root = Path(request.root_path).resolve(strict=False)
-    items: list[PlanItem] = []
-
-    for file_item in request.files:
-        ext = normalize_extension(file_item.extension)
-        source_path = Path(file_item.path)
-        target_path = source_path
-        suggested_name = file_item.name
-        action = "keep"
-        source = "rule"
-        confidence = 1.0
-        reason = "kept"
-        warnings: list[str] = []
-        requires_review = False
-        media_code = ""
-        part_suffix = ""
-        variant = ""
-        removed_tokens: list[str] = []
-        checked = False
-        trace: list[RuleTraceStep] = []
-
-        junk, junk_reason = is_junk_file(
-            file_item,
-            request.rules.custom_junk_keywords,
-            request.rules.trash_zero_byte,
-        )
-        if junk:
-            action = "quarantine"
-            confidence = 0.96
-            reason = junk_reason
-            checked = True
-            if large_temp_junk_requires_review(file_item):
-                checked = False
-                requires_review = True
-                warnings.append("large_temp_file_requires_manual_selection")
-        elif ext in VIDEO_EXTENSIONS or file_item.kind == "media":
-            suggestion = suggest_name_with_trace(file_item.name, request.rules)
-            trace = suggestion.trace
-            warnings = suggestion.warnings
-            if suggestion.media_code:
-                suggested_name = suggestion.suggested_name
-                target_path = source_path.with_name(suggested_name)
-                media_code = suggestion.media_code
-                part_suffix = suggestion.part_suffix
-                variant = suggestion.variant
-                removed_tokens = [token for step in trace for token in step.removed_tokens]
-                confidence = suggestion.confidence
-                if source_path.name == suggested_name:
-                    action = "keep"
-                    reason = "already_clean"
-                    checked = False
-                else:
-                    action = "rename"
-                    reason = "detected_media_code"
-                    checked = True
-            else:
-                action = "review"
-                source = "rule"
-                confidence = suggestion.confidence
-                reason = "media_code_not_detected"
-                checked = False
-
-        items.append(
-            PlanItem(
-                id=file_item.id or file_id(file_item.path),
-                source_path=str(source_path),
-                original_name=file_item.name,
-                suggested_name=suggested_name,
-                target_path=str(target_path),
-                action=action,  # type: ignore[arg-type]
-                source=source,  # type: ignore[arg-type]
-                confidence=confidence,
-                reason=reason,
-                warnings=warnings,
-                checked=checked,
-                selected_default=checked,
-                requires_review=requires_review,
-                relative_path=file_item.relative_path,
-                extension=ext,
-                size=file_item.size,
-                mtime=file_item.mtime,
-                media_code=media_code,
-                part_suffix=part_suffix,
-                variant=variant,
-                removed_tokens=removed_tokens,
-                trace=trace,
-            )
-        )
-
-    apply_cd_suffixes(items)
-    validate_plan_items(root, items)
-    summary = dict(Counter(item.action for item in items))
-    return PlanResponse(root_path=str(root), items=items, summary=summary)
-
-
-def apply_cd_suffixes(items: list[PlanItem]) -> None:
-    grouped: dict[tuple[str, str], list[PlanItem]] = defaultdict(list)
-    for item in items:
-        if item.action != "rename":
-            continue
-        target = Path(item.target_path)
-        grouped[(str(target.parent).lower(), target.name.lower())].append(item)
-
-    for group_items in grouped.values():
-        if len(group_items) <= 1:
-            continue
-        ordered = sorted(group_items, key=lambda item: item.original_name.lower())
-        for index, item in enumerate(ordered, start=1):
-            old_target = Path(item.target_path)
-            base = old_target.stem
-            item.suggested_name = f"{base}-CD{index:02d}{old_target.suffix.lower()}"
-            item.target_name = item.suggested_name
-            item.target_path = str(old_target.with_name(item.suggested_name))
-            item.warnings.append("duplicate_target_cd_suffix")
-
-
-def validate_plan_items(root: Path, items: list[PlanItem]) -> None:
-    target_counts = Counter(
-        str(Path(item.target_path).resolve(strict=False)).lower()
-        for item in items
-        if item.action in {"rename", "quarantine"} and item.checked
-    )
-    for item in items:
-        if item.action == "rename":
-            validate_rename_item(root, item, target_counts)
-
-
-def validate_rename_item(root: Path, item: PlanItem, target_counts: Counter[str]) -> None:
-    from .validator import validate_target_name
-
-    target = Path(item.target_path).resolve(strict=False)
-    source = Path(item.source_path).resolve(strict=False)
-    problems = validate_target_name(item.suggested_name, item.extension)
-    item.warnings.extend(problems)
-
-    try:
-        target.relative_to(root)
-        source.relative_to(root)
-    except ValueError:
-        item.warnings.append("path_escape")
-
-    target_key = str(target).lower()
-    source_key = str(source).lower()
-    if target_counts[target_key] > 1:
-        item.warnings.append("duplicate_target")
-    if target.exists() and target_key != source_key:
-        item.warnings.append("target_exists")
-    if target_key == source_key and str(target) != str(source):
-        item.warnings.append("case_only_rename")
-    if len(str(target)) > 240:
-        item.warnings.append("path_near_limit")
-
-    blocking = {"path_escape", "duplicate_target", "target_exists"}
-    if any(warning in blocking for warning in item.warnings):
-        item.checked = False

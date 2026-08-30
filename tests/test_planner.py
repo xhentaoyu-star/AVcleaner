@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from conftest import make_file
 
 from avcleaner.enums import IssueCode, Operation
@@ -14,6 +17,11 @@ from avcleaner.scanner import scan_files
 def persisted_scan(root: Path):
     response = scan_files(ScanRequest(root_path=str(root)))
     return create_scan(ScanRequest(root_path=str(root)), response)
+
+
+def test_plan_request_rejects_legacy_inline_files() -> None:
+    with pytest.raises(ValidationError):
+        PlanRequest.model_validate({"root_path": "C:\\media", "files": []})
 
 
 def test_create_plan_from_scan_id_persists_items(tmp_path: Path) -> None:

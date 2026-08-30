@@ -626,11 +626,6 @@ def api_create_plan(request: PlanRequest, _token: None = Depends(require_token))
         raise AppError(str(exc), 400) from exc
 
 
-@app.post("/api/plan")
-def api_legacy_plan(request: PlanRequest, _token: None = Depends(require_token)):
-    return api_create_plan(request, _token)
-
-
 @app.get("/api/plans/{plan_id}")
 def api_get_plan(plan_id: str, _token: None = Depends(require_token)):
     try:

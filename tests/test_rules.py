@@ -2,10 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from avcleaner.enums import IssueCode
 from avcleaner.models import PlanRequest, ScanRequest
 from avcleaner.planner import create_plan
-from avcleaner.rules import build_plan, extract_media_code
+from avcleaner.repository import create_scan
+from avcleaner.rules import extract_media_code
 from avcleaner.scanner import scan_files
+
+
+def canonical_plan(scan):
+    persisted = create_scan(ScanRequest(root_path=scan.root_path), scan)
+    return create_plan(PlanRequest(scan_id=persisted.scan_id))
 
 
 def test_extract_media_code_supported_formats() -> None:
@@ -25,19 +32,21 @@ def test_extract_media_code_supported_formats() -> None:
         assert (code.code, code.part_suffix, code.variant) == expected
 
 
-def test_build_plan_renames_video_and_keeps_sidecar(tmp_path: Path) -> None:
+def test_canonical_plan_renames_video_and_associated_sidecar(tmp_path: Path) -> None:
     video = tmp_path / "hhd800.com@FC2-PPV-4856696_1.mp4"
     sidecar = tmp_path / "hhd800.com@FC2-PPV-4856696_1.nfo"
     video.write_bytes(b"video")
     sidecar.write_text("<xml />", encoding="utf-8")
 
     scan = scan_files(ScanRequest(root_path=str(tmp_path)))
-    plan = build_plan(PlanRequest(root_path=scan.root_path, files=scan.files))
+    plan = canonical_plan(scan)
     by_name = {item.original_name: item for item in plan.items}
 
     assert by_name[video.name].action == "rename"
     assert by_name[video.name].suggested_name == "FC2-PPV-4856696-1.mp4"
-    assert by_name[sidecar.name].action == "keep"
+    assert by_name[sidecar.name].action == "rename"
+    assert by_name[sidecar.name].suggested_name == "FC2-PPV-4856696-1.nfo"
+    assert by_name[sidecar.name].selected is False
 
 
 def test_junk_candidates_default_to_quarantine(tmp_path: Path) -> None:
@@ -51,7 +60,7 @@ def test_junk_candidates_default_to_quarantine(tmp_path: Path) -> None:
     empty.write_bytes(b"")
 
     scan = scan_files(ScanRequest(root_path=str(tmp_path)))
-    plan = build_plan(PlanRequest(root_path=scan.root_path, files=scan.files))
+    plan = canonical_plan(scan)
     actions = {item.original_name: item.action for item in plan.items}
 
     assert actions[url.name] == "quarantine"
@@ -67,18 +76,15 @@ def test_obvious_advertising_filenames_default_to_quarantine(tmp_path: Path) -> 
     advertising_page.write_text("advertising", encoding="utf-8")
 
     scan = scan_files(ScanRequest(root_path=str(tmp_path)))
-    for plan in [
-        build_plan(PlanRequest(root_path=scan.root_path, files=scan.files)),
-        create_plan(PlanRequest(root_path=scan.root_path, files=scan.files)),
-    ]:
-        by_name = {item.original_name: item for item in plan.items}
-        for file in [advertising_video, advertising_page]:
-            item = by_name[file.name]
-            assert item.action == "quarantine"
-            assert item.checked is True
-            assert item.selected is True
-            assert item.requires_review is False
-            assert item.reason == "obvious_advertising_filename"
+    plan = canonical_plan(scan)
+    by_name = {item.original_name: item for item in plan.items}
+    for file in [advertising_video, advertising_page]:
+        item = by_name[file.name]
+        assert item.action == "quarantine"
+        assert item.checked is True
+        assert item.selected is True
+        assert item.requires_review is False
+        assert item.reason == "obvious_advertising_filename"
 
 
 def test_files_inside_advertising_directory_default_to_quarantine(tmp_path: Path) -> None:
@@ -101,7 +107,7 @@ def test_files_inside_advertising_directory_default_to_quarantine(tmp_path: Path
     legitimate.write_bytes(b"video")
 
     scan = scan_files(ScanRequest(root_path=str(tmp_path)))
-    plan = create_plan(PlanRequest(root_path=scan.root_path, files=scan.files))
+    plan = canonical_plan(scan)
     by_path = {item.source_rel_path: item for item in plan.items}
 
     for file in advertising_files:
@@ -129,7 +135,7 @@ def test_advertising_directory_bypasses_extension_filter(tmp_path: Path) -> None
     scan = scan_files(ScanRequest(root_path=str(tmp_path), extensions=[".mp4"]))
     scanned_paths = {item.relative_path for item in scan.files}
     assert scanned_paths == {str(file.relative_to(tmp_path)) for file in advertising_files}
-    plan = build_plan(PlanRequest(root_path=scan.root_path, files=scan.files))
+    plan = canonical_plan(scan)
     by_path = {item.source_rel_path: item for item in plan.items}
 
     for file in advertising_files:
@@ -151,7 +157,7 @@ def test_advertising_scan_root_bypasses_extension_filter(tmp_path: Path) -> None
     scan = scan_files(ScanRequest(root_path=str(advertising_root), extensions=[".mp4"]))
 
     assert {item.relative_path for item in scan.files} == {archive.name, video.name}
-    plan = build_plan(PlanRequest(root_path=scan.root_path, files=scan.files))
+    plan = canonical_plan(scan)
     assert {item.reason for item in plan.items} == {"advertising_directory"}
     assert all(item.action == "quarantine" and item.selected_default for item in plan.items)
 
@@ -161,7 +167,7 @@ def test_obvious_advertising_image_defaults_to_quarantine(tmp_path: Path) -> Non
     advertising_image.write_bytes(b"advertising")
 
     scan = scan_files(ScanRequest(root_path=str(tmp_path)))
-    plan = create_plan(PlanRequest(root_path=scan.root_path, files=scan.files))
+    plan = canonical_plan(scan)
     item = next(current for current in plan.items if current.original_name == advertising_image.name)
 
     assert item.action == "quarantine"
@@ -175,34 +181,29 @@ def test_large_temp_download_residue_requires_manual_selection(tmp_path: Path) -
         handle.truncate(2 * 1024 * 1024 * 1024)
 
     scan = scan_files(ScanRequest(root_path=str(tmp_path)))
-    plan = build_plan(PlanRequest(root_path=scan.root_path, files=scan.files))
+    plan = canonical_plan(scan)
     item = next(plan_item for plan_item in plan.items if plan_item.original_name == residue.name)
 
     assert item.action == "quarantine"
     assert item.checked is False
     assert item.selected is False
     assert item.selected_default is False
-    assert item.requires_review is True
+    assert item.requires_review is False
+    assert item.selection_locked is False
     assert "large_temp_file_requires_manual_selection" in item.warnings
-
-    stored_style_plan = create_plan(PlanRequest(root_path=scan.root_path, files=scan.files))
-    stored_style_item = next(plan_item for plan_item in stored_style_plan.items if plan_item.original_name == residue.name)
-    assert stored_style_item.checked is False
-    assert stored_style_item.selected is False
-    assert stored_style_item.requires_review is False
-    assert stored_style_item.selection_locked is False
-    assert "large_temp_file_requires_manual_selection" in stored_style_item.warnings
-    assert "large_temp_file_requires_manual_selection" in stored_style_item.review_reason_codes
+    assert "large_temp_file_requires_manual_selection" in item.review_reason_codes
 
 
-def test_duplicate_targets_get_cd_suffix(tmp_path: Path) -> None:
+def test_duplicate_targets_are_blocked_for_review(tmp_path: Path) -> None:
     a = tmp_path / "abc.com@ABP-123.mp4"
     b = tmp_path / "hhd800.com@ABP-123.mp4"
     a.write_bytes(b"a")
     b.write_bytes(b"b")
 
     scan = scan_files(ScanRequest(root_path=str(tmp_path)))
-    plan = build_plan(PlanRequest(root_path=scan.root_path, files=scan.files))
-    names = sorted(item.suggested_name for item in plan.items if item.action == "rename")
+    plan = canonical_plan(scan)
+    items = [item for item in plan.items if item.action == "rename"]
 
-    assert names == ["ABP-123-CD01.mp4", "ABP-123-CD02.mp4"]
+    assert [item.suggested_name for item in items] == ["ABP-123.mp4", "ABP-123.mp4"]
+    assert all(not item.checked and item.requires_review for item in items)
+    assert all(IssueCode.DUPLICATE_TARGET in {issue.code for issue in item.issues} for item in items)

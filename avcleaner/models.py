@@ -460,9 +460,7 @@ class PlanRecord(StrictModel):
 
 
 class PlanRequest(StrictModel):
-    scan_id: str | None = None
-    root_path: str | None = None
-    files: list[ScanItem] | None = None
+    scan_id: str
     rules: RuleConfig = Field(default_factory=RuleConfig)
     use_llm: bool = False
     preview_mode: Literal["rule", "ai"] = "rule"
