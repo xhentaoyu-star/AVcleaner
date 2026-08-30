@@ -99,6 +99,44 @@ def test_execution_summary_flags_blocking_items(tmp_path: Path, client, auth_hea
     assert "blocking_item_selected" in body["messages"]
 
 
+def test_execution_summary_flags_requires_review_items(tmp_path: Path, client, auth_headers: dict[str, str]) -> None:
+    make_file(tmp_path, "movie_without_code.mp4")
+    plan = create_plan(client, auth_headers, tmp_path)
+    item = plan["items"][0]
+
+    assert item["requires_review"] is True
+    response = client.post(
+        f"/api/plans/{plan['plan_id']}/execution-summary",
+        headers=auth_headers,
+        json={"selected_item_ids": [item["id"]], "plan_hash": plan["plan_hash"]},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok_to_execute"] is False
+    assert body["requires_review_count"] == 1
+    assert "requires_review_item_selected" in body["messages"]
+
+
+def test_execution_summary_flags_non_executable_items(tmp_path: Path, client, auth_headers: dict[str, str]) -> None:
+    make_file(tmp_path, "ABP-123.mp4")
+    plan = create_plan(client, auth_headers, tmp_path)
+    item = plan["items"][0]
+
+    assert item["action"] == "keep"
+    assert item["requires_review"] is False
+    response = client.post(
+        f"/api/plans/{plan['plan_id']}/execution-summary",
+        headers=auth_headers,
+        json={"selected_item_ids": [item["id"]], "plan_hash": plan["plan_hash"]},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok_to_execute"] is False
+    assert "non_executable_item_selected" in body["messages"]
+
+
 def test_execution_summary_rejects_extra_fields(tmp_path: Path, client, auth_headers: dict[str, str]) -> None:
     make_file(tmp_path, "hhd800.com@ABP-123.mp4")
     plan = create_plan(client, auth_headers, tmp_path)

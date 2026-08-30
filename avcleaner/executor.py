@@ -98,6 +98,8 @@ def validate_execute_request(plan_id: str, request: PlanExecuteRequest):
         raise AppError(IssueCode.BLOCKING_ITEM_SELECTED, 400)
     if any(item.requires_review for item in selected):
         raise AppError(IssueCode.REQUIRES_REVIEW_ITEM_SELECTED, 400)
+    if any((item.operation or item.action) not in {Operation.RENAME, Operation.QUARANTINE} for item in selected):
+        raise AppError(IssueCode.NON_EXECUTABLE_ITEM_SELECTED, 400)
     return validated, selected
 
 

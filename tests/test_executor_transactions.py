@@ -106,21 +106,39 @@ def test_transient_file_lock_succeeds_on_retry(tmp_path: Path, monkeypatch) -> N
     assert (tmp_path / "ABP-123.mp4").exists()
 
 
-def test_requires_review_quarantine_cannot_be_executed_directly(tmp_path: Path) -> None:
+def test_large_temp_quarantine_can_be_executed_after_explicit_selection(tmp_path: Path) -> None:
     residue = tmp_path / "midv-192-4k.mp4.xltd"
     with residue.open("wb") as handle:
         handle.truncate(2 * 1024 * 1024 * 1024)
     plan = plan_for(tmp_path)
     item = plan.items[0]
 
-    assert item.requires_review is True
+    assert item.selected is False
+    assert item.selected_default is False
+    assert item.requires_review is False
+    assert "large_temp_file_requires_manual_selection" in item.warnings
+
+    _validated, selected = validate_execute_request(
+        plan.plan_id,
+        PlanExecuteRequest(selected_item_ids=[item.id], confirm=True, plan_hash=plan.plan_hash),
+    )
+
+    assert [selected_item.id for selected_item in selected] == [item.id]
+
+
+def test_non_executable_item_cannot_be_executed(tmp_path: Path) -> None:
+    make_file(tmp_path, "ABP-123.mp4")
+    plan = plan_for(tmp_path)
+    item = plan.items[0]
+
+    assert item.action == "keep"
     with pytest.raises(AppError) as exc_info:
         validate_execute_request(
             plan.plan_id,
             PlanExecuteRequest(selected_item_ids=[item.id], confirm=True, plan_hash=plan.plan_hash),
         )
 
-    assert exc_info.value.error_code == IssueCode.REQUIRES_REVIEW_ITEM_SELECTED
+    assert exc_info.value.error_code == IssueCode.NON_EXECUTABLE_ITEM_SELECTED
 
 
 def test_case_only_rename_restores_source_when_second_step_fails(tmp_path: Path, monkeypatch) -> None:

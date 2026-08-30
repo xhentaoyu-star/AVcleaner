@@ -83,28 +83,59 @@ def test_selection_api_rejects_blocking_items(tmp_path: Path, client, auth_heade
     assert response.json()["error_code"] == "blocking_item_selected"
 
 
-def test_selection_api_rejects_requires_review_quarantine_items(tmp_path: Path, client, auth_headers: dict[str, str]) -> None:
-    residue = tmp_path / "midv-192-4k.mp4.xltd"
+def test_large_temp_quarantine_requires_explicit_selection_and_can_execute(
+    tmp_path: Path,
+    client,
+    auth_headers: dict[str, str],
+) -> None:
+    media_root = tmp_path / "media"
+    media_root.mkdir()
+    residue = media_root / "midv-192-4k.mp4.xltd"
     with residue.open("wb") as handle:
         handle.truncate(2 * 1024 * 1024 * 1024)
-    plan = create_plan(client, auth_headers, tmp_path)
+    plan = create_plan(client, auth_headers, media_root)
     item = plan["items"][0]
 
-    assert item["requires_review"] is True
-    response = client.patch(
+    assert item["selected"] is False
+    assert item["selected_default"] is False
+    assert item["requires_review"] is False
+    assert item["selection_locked"] is False
+    assert "large_temp_file_requires_manual_selection" in item["warnings"]
+
+    selection = client.patch(
         f"/api/plans/{plan['plan_id']}/selection",
         headers=auth_headers,
         json={"selected_item_ids": [item["id"]], "mode": "replace"},
     )
 
-    assert response.status_code == 400
-    assert response.json()["error_code"] == "blocking_item_selected"
+    assert selection.status_code == 200
+    selected_plan = selection.json()
+    selected_item = next(current for current in selected_plan["items"] if current["id"] == item["id"])
+    assert selected_item["selected"] is True
+    assert "large_temp_file_requires_manual_selection" in selected_item["warnings"]
+
+    execute = client.post(
+        f"/api/plans/{plan['plan_id']}/execute",
+        headers=auth_headers,
+        json={
+            "selected_item_ids": [item["id"]],
+            "confirm": True,
+            "plan_hash": selected_plan["plan_hash"],
+        },
+    )
+
+    assert execute.status_code == 200, execute.json()
+    assert execute.json()["state"] == "success", execute.json()["items"][0]
+    assert not residue.exists()
 
 
 def test_select_safe_persists_only_nonblocking_nonreview_non_sidecars(tmp_path: Path, client, auth_headers: dict[str, str]) -> None:
     make_file(tmp_path, "hhd800.com@ABP-123.mp4")
     make_file(tmp_path, "hhd800.com@ABP-123.zh.srt")
     make_file(tmp_path, "movie_without_code.mp4")
+    large_residue = tmp_path / "midv-192-4k.mp4.xltd"
+    with large_residue.open("wb") as handle:
+        handle.truncate(2 * 1024 * 1024 * 1024)
     plan = create_plan(client, auth_headers, tmp_path)
 
     response = client.patch(
@@ -121,6 +152,9 @@ def test_select_safe_persists_only_nonblocking_nonreview_non_sidecars(tmp_path: 
     assert all(not item["blocking"] for item in selected_items)
     assert all(not item["requires_review"] for item in selected_items)
     assert all(not item["sidecar_type"] for item in selected_items)
+    large_item = next(item for item in body["items"] if item["original_name"] == large_residue.name)
+    assert large_item["id"] not in selected
+    assert "large_temp_file_requires_manual_selection" in large_item["warnings"]
     stored = client.get(f"/api/plans/{plan['plan_id']}", headers=auth_headers).json()
     assert {item["id"] for item in stored["items"] if item["selected"]} == set(selected)
 

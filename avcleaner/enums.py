@@ -49,6 +49,7 @@ class IssueCode(StrEnum):
     UNKNOWN_PLAN_ITEM = "unknown_plan_item"
     BLOCKING_ITEM_SELECTED = "blocking_item_selected"
     REQUIRES_REVIEW_ITEM_SELECTED = "requires_review_item_selected"
+    NON_EXECUTABLE_ITEM_SELECTED = "non_executable_item_selected"
     INVALID_TARGET_NAME = "invalid_target_name"
     PATH_SEPARATOR_IN_TARGET = "path_separator_in_target"
     NO_SELECTED_ITEMS = "no_selected_items"

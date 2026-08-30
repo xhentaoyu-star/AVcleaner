@@ -280,6 +280,11 @@ const CODE_EXPLANATIONS = {
     explanation: "执行请求包含了仍需人工复核的项目，后端已阻止此次操作。",
     suggested_action: "先复核该项目，或只执行已默认选中的安全项目。",
   },
+  "non_executable_item_selected": {
+    title: "所选项目不可执行",
+    explanation: "执行请求包含保留、跳过或仅供复核的项目，后端不会把它们当作文件操作执行。",
+    suggested_action: "只选择改名或隔离项目后再执行。",
+  },
   "path_too_long": {
     title: "路径过长",
     explanation: "目标完整路径超过当前安全限制。",

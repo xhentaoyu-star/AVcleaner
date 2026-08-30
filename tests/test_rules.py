@@ -189,7 +189,9 @@ def test_large_temp_download_residue_requires_manual_selection(tmp_path: Path) -
     stored_style_item = next(plan_item for plan_item in stored_style_plan.items if plan_item.original_name == residue.name)
     assert stored_style_item.checked is False
     assert stored_style_item.selected is False
-    assert stored_style_item.requires_review is True
+    assert stored_style_item.requires_review is False
+    assert stored_style_item.selection_locked is False
+    assert "large_temp_file_requires_manual_selection" in stored_style_item.warnings
     assert "large_temp_file_requires_manual_selection" in stored_style_item.review_reason_codes
 
 

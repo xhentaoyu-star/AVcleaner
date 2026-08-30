@@ -30,6 +30,7 @@ from .validators import validate_filename, validate_plan_items
 
 
 EXECUTABLE_ACTIONS = {Operation.RENAME, Operation.QUARANTINE, "rename", "quarantine"}
+LARGE_TEMP_MANUAL_SELECTION_WARNING = "large_temp_file_requires_manual_selection"
 CONFLICT_CODES = {
     str(IssueCode.DUPLICATE_TARGET),
     str(IssueCode.DUPLICATE_TARGET_CASE_INSENSITIVE),
@@ -94,14 +95,19 @@ def _issue_codes(item: PlanItem) -> list[str]:
     return list(dict.fromkeys(str(issue.code) for issue in item.issues))
 
 
+def _large_temp_requires_manual_selection(item: PlanItem) -> bool:
+    action = item.operation or item.action
+    return action in {Operation.QUARANTINE, "quarantine"} and large_temp_junk_requires_review(item)
+
+
 def _review_reason_codes(item: PlanItem) -> list[str]:
     codes: list[str] = []
     if item.requires_review and item.confidence < 0.7:
         codes.append("low_confidence")
     if item.requires_review and not item.media_code and item.action in {Operation.REVIEW, "review"}:
         codes.append("media_code_not_detected")
-    if item.requires_review and item.action in {Operation.QUARANTINE, "quarantine"} and large_temp_junk_requires_review(item):
-        codes.append("large_temp_file_requires_manual_selection")
+    if _large_temp_requires_manual_selection(item):
+        codes.append(LARGE_TEMP_MANUAL_SELECTION_WARNING)
     codes.extend(str(warning) for warning in item.warnings if warning)
     codes.extend(str(issue.code) for issue in item.issues if issue.blocking)
     return sorted(set(codes))
@@ -114,12 +120,16 @@ def _is_safe_selectable(item: PlanItem) -> bool:
         and not item.blocking
         and not item.requires_review
         and not item.sidecar_type
+        and not _large_temp_requires_manual_selection(item)
     )
 
 
 def decorate_plan_item(item: PlanItem) -> PlanItem:
     issue_codes = _issue_codes(item)
     blocking = any(issue.blocking for issue in item.issues)
+    warnings = list(item.warnings)
+    if _large_temp_requires_manual_selection(item) and LARGE_TEMP_MANUAL_SELECTION_WARNING not in warnings:
+        warnings.append(LARGE_TEMP_MANUAL_SELECTION_WARNING)
     selected = bool(item.checked or item.selected) and not blocking
     action = item.operation or item.action
     selection_locked = blocking or item.requires_review or action not in EXECUTABLE_ACTIONS
@@ -156,6 +166,7 @@ def decorate_plan_item(item: PlanItem) -> PlanItem:
         update={
             "checked": selected,
             "selected": selected,
+            "warnings": warnings,
             "blocking": blocking,
             "warning_count": len([issue for issue in item.issues if not issue.blocking]),
             "issue_codes": issue_codes,
@@ -235,8 +246,7 @@ def plan_item_from_scan(plan_id: str, root: Path, item: ScanItem, rules: RuleCon
         checked = True
         if large_temp_junk_requires_review(item):
             checked = False
-            requires_review = True
-            warnings.append("large_temp_file_requires_manual_selection")
+            warnings.append(LARGE_TEMP_MANUAL_SELECTION_WARNING)
     elif item.kind == "media":
         suggestion = suggest_name_with_trace(item.name, rules)
         trace = suggestion.trace
@@ -529,13 +539,23 @@ def build_execution_summary(plan_id: str, request: ExecutionSummaryRequest) -> E
     blocking_count = sum(1 for item in selected if item.blocking)
     warning_count = sum(1 for item in selected if item.warning_count)
     requires_review_count = sum(1 for item in selected if item.requires_review)
+    non_executable_count = sum(1 for item in selected if (item.operation or item.action) not in EXECUTABLE_ACTIONS)
     messages: list[str] = []
     if not selected:
         messages.append(str(IssueCode.NO_SELECTED_ITEMS))
     if blocking_count:
         messages.append(str(IssueCode.BLOCKING_ITEM_SELECTED))
+    if requires_review_count:
+        messages.append(str(IssueCode.REQUIRES_REVIEW_ITEM_SELECTED))
+    if non_executable_count:
+        messages.append(str(IssueCode.NON_EXECUTABLE_ITEM_SELECTED))
     return ExecutionSummaryResponse(
-        ok_to_execute=bool(selected) and blocking_count == 0,
+        ok_to_execute=(
+            bool(selected)
+            and blocking_count == 0
+            and requires_review_count == 0
+            and non_executable_count == 0
+        ),
         plan_id=record.plan_id,
         plan_hash=record.plan_hash,
         selected_count=len(selected),
